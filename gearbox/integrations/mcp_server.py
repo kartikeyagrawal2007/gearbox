@@ -1,0 +1,149 @@
+"""MCP server exposing Gearbox to any MCP host (Claude Code, Antigravity, Cursor, Cline, Codex).
+
+The host agent is the "frontier" model. It calls `delegate` to hand off a
+subtask, keeps working, and calls `await_result` when it needs the output.
+Background subtasks live as long as this server process (one per host session).
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
+
+from gearbox.config import load_config
+from gearbox.cost.breakeven import break_even
+from gearbox.delegate.runtime import DelegationRuntime
+
+INSTRUCTIONS = """\
+Gearbox lets you hand self-contained subtasks to cheaper models and keep working meanwhile.
+
+Delegate: well-specified, low-risk, checkable subtasks whose output is much longer than the \
+instructions you have to write, e.g. generating tests or boilerplate, drafting docs, \
+transforming data.
+Everything you write into `task` and `context` is billed as your own output tokens, so keep \
+briefs short.
+Flow: call `delegate`, which returns a task_id immediately. Continue with independent work, \
+then call `await_result` only when you need the output. Verify the result before relying on it.
+Do not delegate: steps that need your full conversation history, open design decisions, or \
+irreversible actions. Set `risk` honestly: higher risk routes to a stronger model.
+"""
+
+mcp = MCPServer("gearbox", instructions=INSTRUCTIONS)
+_runtime: DelegationRuntime | None = None
+
+
+def runtime() -> DelegationRuntime:
+    global _runtime
+    if _runtime is None:
+        _runtime = DelegationRuntime(load_config())
+    return _runtime
+
+
+@contextmanager
+def caller_errors() -> Iterator[None]:
+    """Report mistakes the calling agent can fix (unknown tier or task_id, bad risk,
+    missing config) as readable tool errors. MCP hides other exception messages."""
+    try:
+        yield
+    except (ValueError, KeyError, FileNotFoundError) as e:
+        raise ToolError(str(e.args[0]) if e.args else type(e).__name__) from e
+
+
+@mcp.tool()
+async def route(prompt: str, risk: str | None = None) -> dict:
+    """Recommend a model tier for a prompt from its estimated difficulty.
+
+    risk: "low" | "medium" | "high". How costly a wrong answer would be; raises the tier (leverage).
+    """
+    with caller_errors():
+        rt = runtime()
+        decision = await rt.router.route(prompt, risk=risk)
+        return {**decision.as_dict(), "model": rt.config.tiers[decision.tier].model}
+
+
+@mcp.tool()
+async def delegate(
+    task: str,
+    context: str = "",
+    acceptance: str = "",
+    risk: str = "low",
+    tier: str | None = None,
+    expected_output_tokens: int | None = None,
+) -> dict:
+    """Hand a self-contained subtask to a cheaper model. Returns immediately with a task_id.
+
+    Keep working on anything that does not depend on this result, then call await_result.
+    task: what to do, stated so it can be done without your conversation history.
+    context: only the facts or snippets the worker needs (you pay output tokens for every word).
+    acceptance: how to tell the result is correct.
+    risk: "low" | "medium" | "high". Higher risk routes to a stronger tier.
+    tier: force a specific tier by name (skips difficulty routing).
+    expected_output_tokens: optional; if given, a break-even estimate is included in the reply.
+    """
+    with caller_errors():
+        rt = runtime()
+        dt = rt.delegate(task, context=context, acceptance=acceptance, risk=risk, tier=tier)
+        reply = {"task_id": dt.id, "state": dt.state.value, "next": "continue other work; call await_result when needed"}
+        if expected_output_tokens:
+            # Priced against the cheapest tier; routing may pick a higher one.
+            estimate = break_even(rt.config.host, rt.config.tiers[0].pricing, dt.brief_tokens, expected_output_tokens)
+            reply["break_even"] = estimate.as_dict()
+        return reply
+
+
+@mcp.tool()
+async def await_result(task_id: str, timeout_s: float = 60.0) -> dict:
+    """Wait up to timeout_s seconds for a delegated subtask. Returns its result once state is "done".
+
+    If it is still running, you get state "running". Do other work or call again.
+    """
+    with caller_errors():
+        return await runtime().await_result(task_id, timeout_s=timeout_s)
+
+
+@mcp.tool()
+async def status(task_id: str | None = None) -> dict:
+    """Check one delegated subtask (by task_id) or list all of them, without waiting."""
+    with caller_errors():
+        rt = runtime()
+        if task_id:
+            return rt.status(task_id)
+        return {"tasks": rt.list_tasks()}
+
+
+@mcp.tool()
+async def cancel(task_id: str) -> dict:
+    """Cancel a running delegated subtask."""
+    with caller_errors():
+        return {"task_id": task_id, "cancelled": runtime().cancel(task_id)}
+
+
+@mcp.tool()
+async def ledger() -> dict:
+    """Tokens and cost spent by Gearbox per tier, estimated host savings, and async overlap stats."""
+    with caller_errors():
+        return runtime().stats()
+
+
+def protect_stdout() -> None:
+    """stdout carries the JSON-RPC stream. The MCP SDK sets the root logger to INFO
+    and LiteLLM routes records below WARNING to stdout, so a single completion can
+    corrupt the stream. Only let ERROR records (routed to stderr) through.
+    Must run before LiteLLM is first imported."""
+    os.environ["LITELLM_LOG"] = "ERROR"
+
+
+def main() -> None:
+    protect_stdout()
+    # Build the runtime (and import LiteLLM) at startup rather than inside the first
+    # tool call. A missing or invalid config then fails at launch, where the host shows it.
+    runtime()
+    mcp.run()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,43 @@
+# Copy to gearbox.yaml (or point $GEARBOX_CONFIG at it) and edit.
+#
+# Tiers are ordered cheapest -> strongest. `model` is any LiteLLM model string:
+#   ollama_chat/<tag>          local Ollama
+#   hosted_vllm/<name>         a vLLM OpenAI-compatible server (set api_base)
+#   anthropic/..., openai/..., gemini/..., openrouter/...   hosted APIs (keys via env vars)
+#
+# Prices are USD per million tokens. The numbers below are ILLUSTRATIVE PLACEHOLDERS:
+# replace them with current published prices. For local models, use what a hosted
+# provider charges for the same open model ("API-equivalent"), or 0.
+
+tiers:
+  - name: nano
+    model: ollama_chat/qwen3:1.7b
+    input_price: 0.02
+    output_price: 0.08
+  - name: small
+    model: ollama_chat/qwen3:4b
+    input_price: 0.05
+    output_price: 0.2
+  - name: medium
+    model: ollama_chat/qwen3:14b
+    input_price: 0.1
+    output_price: 0.4
+  - name: large
+    model: ollama_chat/qwen3:32b
+    input_price: 0.2
+    output_price: 0.8
+
+# The agent that calls Gearbox (Claude, Gemini, GPT inside your IDE). Only used to
+# estimate savings. Placeholder prices: set them to your host model's real ones.
+host:
+  input_price: 3.0
+  output_price: 15.0
+  cache_read_price: 0.3
+
+leverage: 1                 # constant safety margin in tiers (used when no risk is given)
+risk_scaled_leverage: true  # low/medium/high risk -> +0/+1/+2, plus 1 more when the estimator is unsure
+difficulty: heuristic       # heuristic (free) | judge (a cheap tier rates difficulty)
+judge_tier: 0
+max_concurrent: 4           # delegated subtasks running at once
+task_timeout_s: 600         # per attempt
+max_escalations: 1          # move up a tier on UNSURE / error / timeout
