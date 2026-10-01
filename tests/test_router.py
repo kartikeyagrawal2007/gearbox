@@ -37,3 +37,5 @@ def test_explicit_leverage_and_bounds_win():
 def test_invalid_risk_rejected():
     with pytest.raises(ValueError):
         decide(make_config(risk_scaled_leverage=True), DifficultyEstimate(0.5, 0.5), risk="extreme")
+    with pytest.raises(ValueError):  # also when risk-scaling is off
+        decide(make_config(risk_scaled_leverage=False), DifficultyEstimate(0.5, 0.5), risk="extreme")

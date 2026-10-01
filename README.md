@@ -35,6 +35,29 @@ cp gearbox.example.yaml gearbox.yaml
 
 Edit `gearbox.yaml`. Tiers are any [LiteLLM](https://docs.litellm.ai/) model strings: Ollama, vLLM, Anthropic, OpenAI, Gemini, OpenRouter, and others. Prices in the example are placeholders.
 
+## See it running
+
+**The dashboard** (`gearbox ui`) lets you delegate subtasks, preview which gear a prompt lands in and why, watch attempts and escalations live, and read the ledger. Its **race** panel runs the same workload blocking and then async, and draws both measured timelines.
+
+```bash
+gearbox ui --simulate          # instant: fake models, no backend needed
+gearbox ui                     # real models from gearbox.yaml (e.g. Ollama)
+```
+
+Then open http://127.0.0.1:8765. The dashboard binds to localhost only and has no auth.
+
+**With a real agent as the host**, let the MCP server serve the dashboard too. Delegations Claude Code makes then appear live:
+
+```bash
+claude mcp add gearbox -e GEARBOX_CONFIG=/abs/path/gearbox.yaml -- /abs/path/.venv/bin/gearbox-mcp --dashboard 8777
+```
+
+Open http://127.0.0.1:8777, then ask Claude Code to "use gearbox to delegate writing the tests for X".
+
+Notes on the race numbers:
+- Each model is loaded with an untimed warm-up call first. Without it, the first phase pays the cold start, which inflated one early run to 1.31× when the real figure was about 1.1×.
+- When host and worker share one GPU, the host stops waiting but the overlapped calls slow each other down, so async gains little wall-clock time. On an M4 with one 14B model we measured 1.08× and 1.16× over two warm runs. Separate hardware for host and worker is where async should pay.
+
 ## CLI
 
 ```bash
@@ -47,7 +70,7 @@ gearbox run "Write pytest cases for a slugify(text) function" --acceptance "cove
 
 Gearbox exposes these MCP tools: `route`, `delegate`, `await_result`, `status`, `cancel` and `ledger`.
 
-**Claude Code**
+**Claude Code** (add `--dashboard PORT` after `gearbox-mcp` to watch it live)
 ```bash
 claude mcp add gearbox -e GEARBOX_CONFIG=/abs/path/gearbox.yaml -- /abs/path/.venv/bin/gearbox-mcp
 ```

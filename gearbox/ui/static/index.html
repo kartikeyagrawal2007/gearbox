@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gearbox</title>
+<style>
+  :root {
+    --bg: #f6f6f3; --panel: #ffffff; --border: #e3e2dc; --text: #1f1e1b; --muted: #6b6a64;
+    --accent: #5b50d6; --accent-soft: #eeedfe; --worker: #1d9e75; --worker-soft: #e1f5ee;
+    --warn: #ba7517; --warn-soft: #faeeda; --bad: #c43d3d; --bad-soft: #fcebeb; --ok: #3b6d11; --ok-soft: #eaf3de;
+    --host: #5f5e5a; --host-soft: #d3d1c7; --radius: 10px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #1f1f1c; --border: #33322e; --text: #ecebe6; --muted: #a09f98;
+      --accent: #9b93ee; --accent-soft: #2b2850; --worker: #5dcaa5; --worker-soft: #0d3a2e;
+      --warn: #ef9f27; --warn-soft: #412402; --bad: #f09595; --bad-soft: #501313; --ok: #97c459; --ok-soft: #173404;
+      --host: #b4b2a9; --host-soft: #444441;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, sans-serif; }
+  header { padding: 18px 28px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; align-items: center; gap: 14px; background: var(--panel); }
+  header h1 { font-size: 20px; margin: 0; font-weight: 600; }
+  header .tag { color: var(--muted); }
+  .ladder { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; white-space: nowrap; }
+  .chip small { color: var(--muted); font-family: var(--mono); }
+  .badge { padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .badge.real { background: var(--ok-soft); color: var(--ok); }
+  .badge.sim { background: var(--warn-soft); color: var(--warn); }
+  main { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; padding: 18px 28px 40px; max-width: 1400px; margin: 0 auto; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; min-width: 0; }
+  .wide { grid-column: 1 / -1; }
+  h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
+  h2 .hint { font-weight: 400; color: var(--muted); font-size: 13px; margin-left: 6px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  textarea, input[type=text], select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+  textarea { resize: vertical; min-height: 64px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .row > div { flex: 1; min-width: 140px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-right: 1px solid var(--border); background: transparent; color: var(--text); padding: 7px 12px; cursor: pointer; font: inherit; }
+  .seg button:last-child { border-right: 0; }
+  .seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .btn { white-space: nowrap; border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 8px 14px; border-radius: 8px; cursor: pointer; font: inherit; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.small { padding: 3px 9px; font-size: 12px; }
+  .actions { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
+  .err { color: var(--bad); font-size: 13px; min-height: 18px; margin-top: 6px; }
+  .preview { margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 14px; }
+  .meter { height: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; margin: 4px 0 10px; }
+  .meter > div { height: 100%; background: var(--accent); }
+  .gears { display: flex; gap: 6px; }
+  .gear { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 8px 6px; text-align: center; font-size: 12px; position: relative; }
+  .gear b { display: block; font-size: 13px; }
+  .gear.base { border-style: dashed; border-color: var(--muted); }
+  .gear.final { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .gear .flag { position: absolute; top: -9px; left: 50%; transform: translateX(-50%); background: var(--panel); padding: 0 4px; font-size: 10px; color: var(--muted); white-space: nowrap; }
+  .muted { color: var(--muted); }
+  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .stat .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.n, th.n { text-align: right; }
+  .tasks { display: flex; flex-direction: column; gap: 10px; }
+  .task { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .task .top { display: flex; gap: 10px; align-items: center; }
+  .task .title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .task .meta { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; }
+  .s-routing, .s-running { background: var(--accent-soft); color: var(--accent); }
+  .s-done { background: var(--ok-soft); color: var(--ok); }
+  .s-failed { background: var(--bad-soft); color: var(--bad); }
+  .s-cancelled { background: var(--bg); color: var(--muted); }
+  .o-ok { color: var(--ok); } .o-unsure, .o-timeout { color: var(--warn); } .o-error { color: var(--bad); }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+  pre { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; overflow: auto; max-height: 320px; font: 12px/1.5 var(--mono); white-space: pre-wrap; margin: 6px 0 0; }
+  .empty { color: var(--muted); padding: 18px 0; text-align: center; }
+  .spin { display: inline-block; width: 10px; height: 10px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: sp .8s linear infinite; vertical-align: -1px; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .phase { margin-top: 16px; }
+  .phase-head { display: flex; gap: 12px; align-items: baseline; margin-bottom: 6px; }
+  .phase-head b { font-size: 14px; }
+  .lane { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 10px; margin: 4px 0; }
+  .lane .name { font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track { position: relative; height: 26px; background: var(--bg); border-radius: 6px; }
+  .bar { position: absolute; top: 3px; height: 20px; border-radius: 4px; min-width: 2px; font-size: 11px; line-height: 20px; padding: 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .bar.work { background: var(--host-soft); color: var(--text); }
+  .bar.blocked { background: transparent; border: 1px dashed var(--host); color: var(--muted); }
+  .bar.worker { background: var(--worker-soft); color: var(--worker); border: 1px solid var(--worker); }
+  .bar.worker.unsure, .bar.worker.timeout { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+  .bar.worker.error { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); }
+  .bar.open { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .55; } }
+  @media (prefers-reduced-motion: reduce) { .bar.open, .spin { animation: none; } }
+  .axis { position: relative; height: 18px; margin-left: 130px; font-size: 11px; color: var(--muted); }
+  .axis span { position: absolute; transform: translateX(-50%); }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 14px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .verdict { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .verdict.neutral { background: var(--bg); color: var(--text); font-weight: 400; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 14px; } .lane { grid-template-columns: 80px 1fr; } .axis { margin-left: 90px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Gearbox</h1>
+  <span class="tag">automatic transmission for LLM agents</span>
+  <span id="mode" class="badge"></span>
+  <div id="ladder" class="ladder"></div>
+</header>
+
+<main>
+  <section class="card" aria-labelledby="h-compose">
+    <h2 id="h-compose">Delegate a subtask <span class="hint">the host hands this to a cheaper tier and keeps working</span></h2>
+    <label for="task">Subtask</label>
+    <textarea id="task" placeholder="Write a Python function slugify(text) that lowercases, strips accents and joins words with hyphens. Code only."></textarea>
+    <div id="task-err" class="err" role="alert"></div>
+    <div class="row">
+      <div>
+        <label for="acceptance">Done when <span class="muted">(optional)</span></label>
+        <input id="acceptance" type="text" placeholder="slugify('Héllo  World!') == 'hello-world'">
+      </div>
+      <div>
+        <label for="tier">Tier</label>
+        <select id="tier"></select>
+      </div>
+    </div>
+    <label for="context">Context <span class="muted">(optional: everything here costs host output tokens)</span></label>
+    <textarea id="context" style="min-height:40px"></textarea>
+    <label id="risk-label">Risk of a wrong answer</label>
+    <div class="seg" id="risk" role="group" aria-labelledby="risk-label"></div>
+    <div class="actions">
+      <button class="btn" id="btn-route">Preview route</button>
+      <button class="btn primary" id="btn-delegate">Delegate</button>
+      <span id="action-msg" class="muted"></span>
+    </div>
+    <div id="preview" class="preview" hidden></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-ledger">
+    <h2 id="h-ledger">Ledger <span class="hint">everything Gearbox spent</span></h2>
+    <div class="stats" id="stats"></div>
+    <table id="tier-table" aria-label="Spend by tier"></table>
+    <p class="muted" style="font-size:12px;margin:10px 0 0" id="assumptions"></p>
+  </section>
+
+  <section class="card wide" aria-labelledby="h-tasks">
+    <h2 id="h-tasks">Delegated subtasks <span class="hint">live</span></h2>
+    <div id="tasks" class="tasks"><div class="empty">No subtasks yet. Delegate one above.</div></div>
+  </section>
+
+  <section class="card wide" aria-labelledby="h-race">
+    <h2 id="h-race">Race: blocking vs async <span class="hint">same model calls, two schedules, measured timelines</span></h2>
+    <div class="actions" style="margin-top:0">
+      <button class="btn primary" id="btn-race">Run race</button>
+      <span id="race-msg" class="muted"></span>
+    </div>
+    <details id="workload"><summary>Workload</summary><div id="workload-body"></div></details>
+    <div id="race"></div>
+    <div class="legend">
+      <span><i style="background:var(--host-soft)"></i>host working</span>
+      <span><i style="border:1px dashed var(--host)"></i>host blocked, waiting</span>
+      <span><i style="background:var(--worker-soft);border:1px solid var(--worker)"></i>cheap worker</span>
+      <span><i style="background:var(--warn-soft);border:1px solid var(--warn)"></i>unsure / timeout</span>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function h(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (v == null || v === false) continue;
+    if (k === 'class') node.className = v;
+    else if (k === 'style') node.setAttribute('style', v);
+    else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const c of children.flat()) if (c != null && c !== false) node.append(c instanceof Node ? c : String(c));
+  return node;
+}
+const fmtS = (s) => s == null ? '–' : s < 10 ? s.toFixed(1) + 's' : Math.round(s) + 's';
+const fmtUsd = (x) => x == null ? '–' : (Math.abs(x) < 0.01 ? '$' + x.toFixed(5) : '$' + x.toFixed(3));
+const fmtN = (x) => Math.round(x).toLocaleString();
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+let CONFIG = null;
+let risk = '';
+const openResults = new Set();
+
+async function init() {
+  CONFIG = await api('/api/config');
+  const mode = $('mode');
+  mode.textContent = CONFIG.simulated ? 'simulated models' : 'real models';
+  mode.className = 'badge ' + (CONFIG.simulated ? 'sim' : 'real');
+  $('ladder').replaceChildren(...CONFIG.tiers.map((t, i) =>
+    h('span', { class: 'chip', title: t.model }, h('b', {}, `${i} ${t.name}`), h('small', {}, t.model.split('/').pop()))));
+  $('tier').replaceChildren(h('option', { value: '' }, 'Auto (route by difficulty)'),
+    ...CONFIG.tiers.map(t => h('option', { value: t.name }, `${t.name} · ${t.model.split('/').pop()}`)));
+  const riskOpts = [['', 'Unset'], ...CONFIG.risks.map(r => [r, r[0].toUpperCase() + r.slice(1)])];
+  $('risk').replaceChildren(...riskOpts.map(([v, label]) =>
+    h('button', { type: 'button', 'data-v': v, class: v === risk ? 'on' : '', onclick: () => setRisk(v) }, label)));
+  setRisk('low');
+  poll();
+  setInterval(poll, 800);
+}
+
+function setRisk(v) {
+  risk = v;
+  for (const b of $('risk').children) b.classList.toggle('on', b.dataset.v === v);
+}
+
+function readForm() {
+  const task = $('task').value.trim();
+  $('task-err').textContent = task ? '' : 'Enter a subtask first.';
+  if (!task) { $('task').focus(); return null; }
+  return { task, context: $('context').value, acceptance: $('acceptance').value, risk, tier: $('tier').value };
+}
+$('task').addEventListener('input', () => { if ($('task').value.trim()) $('task-err').textContent = ''; $('preview').hidden = true; });
+
+$('btn-route').addEventListener('click', async () => {
+  const f = readForm(); if (!f) return;
+  try {
+    const d = await api('/api/route', { prompt: [f.task, f.context, f.acceptance].filter(Boolean).join('\n\n'), risk: f.risk });
+    renderPreview(d);
+  } catch (e) { $('task-err').textContent = e.message; }
+});
+
+$('btn-delegate').addEventListener('click', async () => {
+  const f = readForm(); if (!f) return;
+  const btn = $('btn-delegate'); btn.disabled = true;
+  try {
+    const d = await api('/api/delegate', f);
+    $('action-msg').textContent = `Delegated as ${d.task_id}. It runs in the background.`;
+    poll();
+  } catch (e) { $('task-err').textContent = e.message; }
+  finally { btn.disabled = false; }
+});
+
+function renderPreview(d) {
+  const p = $('preview'); p.hidden = false;
+  const reasons = [];
+  if (d.leverage) reasons.push(`+${d.leverage} leverage`);
+  if (d.confidence < 0.5) reasons.push('estimate is unsure');
+  p.replaceChildren(
+    h('div', { class: 'muted', style: 'font-size:12px' }, `Difficulty ${d.difficulty.toFixed(2)} · confidence ${d.confidence.toFixed(2)}`),
+    h('div', { class: 'meter', role: 'img', 'aria-label': `difficulty ${d.difficulty.toFixed(2)} of 1` }, h('div', { style: `width:${Math.max(2, d.difficulty * 100)}%` })),
+    h('div', { class: 'gears' }, CONFIG.tiers.map((t, i) => {
+      const cls = ['gear', i === d.base_tier_index && i !== d.tier_index ? 'base' : '', i === d.tier_index ? 'final' : ''].join(' ');
+      const flag = i === d.tier_index ? 'routed here' : i === d.base_tier_index ? 'estimate' : null;
+      return h('div', { class: cls }, flag && h('span', { class: 'flag' }, flag), h('b', {}, t.name), h('span', { class: 'muted' }, t.model.split('/').pop()));
+    })),
+    h('div', { class: 'muted', style: 'font-size:12px;margin-top:10px' },
+      `Estimate says ${CONFIG.tiers[d.base_tier_index].name}; ${reasons.join(', ') || 'no leverage'} → ${d.tier}. ${d.rationale}`),
+  );
+}
+
+async function poll() {
+  try {
+    const [t, l] = await Promise.all([api('/api/tasks'), api('/api/ledger')]);
+    renderTasks(t.tasks); renderLedger(l);
+  } catch (e) { /* server restarting; next poll retries */ }
+}
+
+function renderTasks(tasks) {
+  const box = $('tasks');
+  if (!tasks.length) return;
+  const now = Date.now() / 1000;
+  box.replaceChildren(...tasks.map(t => {
+    const live = !['done', 'failed', 'cancelled'].includes(t.state);
+    const elapsed = live ? now - t.created_at : t.run_s;
+    const r = t.routing;
+    const route = r ? `difficulty ${r.difficulty.toFixed(2)} → ${CONFIG.tiers[r.base_tier_index]?.name ?? '?'}${r.leverage ? ` +${r.leverage}` : ''} → ${r.tier}` : 'routing…';
+    const attempts = t.attempts.map(a => h('span', { class: 'chip' },
+      h('b', {}, a.tier), h('span', { class: 'o-' + a.outcome }, a.outcome), fmtS(a.latency_s),
+      a.output_tokens ? h('small', {}, `${a.input_tokens}→${a.output_tokens} tok`) : null));
+    if (t.active) attempts.push(h('span', { class: 'chip' }, h('b', {}, t.active.tier), h('span', { class: 'spin', 'aria-label': 'running' })));
+    const details = (t.result || t.error) ? h('details', {
+      open: openResults.has(t.task_id) ? '' : null,
+      ontoggle: (e) => e.target.open ? openResults.add(t.task_id) : openResults.delete(t.task_id),
+    }, h('summary', {}, t.error ? 'Result and error' : 'Result'),
+      t.error ? h('div', { class: 'err' }, t.error) : null,
+      t.result ? h('pre', {}, t.result) : null) : null;
+    return h('div', { class: 'task' },
+      h('div', { class: 'top' },
+        h('span', { class: 'pill s-' + t.state }, live ? h('span', { class: 'spin', style: 'width:8px;height:8px;margin-right:5px' }) : null, t.state),
+        h('span', { class: 'title', title: t.task }, t.task),
+        h('span', { class: 'muted', style: 'font-variant-numeric:tabular-nums' }, fmtS(elapsed)),
+        live ? h('button', { class: 'btn small', onclick: async () => { await api(`/api/tasks/${t.task_id}/cancel`, {}); poll(); } }, 'Cancel') : null),
+      h('div', { class: 'meta' }, h('span', {}, route), attempts.length ? '·' : null, attempts),
+      details);
+  }));
+}
+
+function renderLedger(l) {
+  const a = l.async || {};
+  const tiles = [
+    ['Worker spend', fmtUsd(l.total_cost_usd)],
+    ['Est. host savings', fmtUsd(l.estimated_host_savings_usd)],
+    ['Subtasks succeeded', `${l.delegated_tasks_succeeded} / ${l.delegated_tasks}`],
+    ['Host overlap', a.overlap_ratio == null ? 'n/a' : Math.round(a.overlap_ratio * 100) + '%'],
+  ];
+  $('stats').replaceChildren(...tiles.map(([k, v]) => h('div', { class: 'stat', title: k === 'Host overlap' ? 'Share of worker run time the host spent on other work. Only counts results the host waited for (via MCP await_result or a race); the dashboard itself never waits.' : null }, h('div', { class: 'v' }, v), h('div', { class: 'k' }, k))));
+  const rows = Object.entries(l.by_tier || {});
+  $('tier-table').replaceChildren(
+    h('thead', {}, h('tr', {}, h('th', {}, 'Tier'), h('th', { class: 'n' }, 'Calls'), h('th', { class: 'n' }, 'In tok'), h('th', { class: 'n' }, 'Out tok'), h('th', { class: 'n' }, 'Cost'))),
+    h('tbody', {}, rows.length ? rows.map(([name, t]) => h('tr', {}, h('td', {}, name), h('td', { class: 'n' }, fmtN(t.calls)),
+      h('td', { class: 'n' }, fmtN(t.input_tokens)), h('td', { class: 'n' }, fmtN(t.output_tokens)), h('td', { class: 'n' }, fmtUsd(t.cost_usd))))
+      : h('tr', {}, h('td', { colspan: 5, class: 'muted' }, 'No calls yet'))));
+  $('assumptions').textContent = l.savings_assumptions || '';
+  $('assumptions').title = l.savings_assumptions || '';
+}
+
+let raceTimer = null;
+$('btn-race').addEventListener('click', async () => {
+  $('btn-race').disabled = true;
+  try {
+    const { race_id } = await api('/api/race', {});
+    $('race-msg').textContent = 'Running blocking first, then async…';
+    const tick = async () => {
+      const r = await api('/api/race/' + race_id);
+      if (r.status === 'warming up') $('race-msg').textContent = 'Loading models first, so neither phase pays the cold start…';
+      else if (r.status === 'running') $('race-msg').textContent = r.phases.async.started ? 'Running async…' : 'Running blocking…';
+      renderRace(r);
+      if (r.status === 'done' || r.status === 'failed') {
+        clearInterval(raceTimer); $('btn-race').disabled = false;
+        $('race-msg').textContent = r.status === 'failed' ? 'Race failed: ' + r.error : 'Finished.';
+      }
+    };
+    raceTimer = setInterval(tick, 400); tick();
+  } catch (e) { $('race-msg').textContent = e.message; $('btn-race').disabled = false; }
+});
+
+// Concurrent worker spans get their own rows so they never draw on top of each other.
+function packRows(spans) {
+  const rows = [];
+  for (const s of [...spans].sort((a, b) => a.start - b.start)) {
+    const row = rows.find(r => r[r.length - 1].end <= s.start + 0.01);
+    row ? row.push(s) : rows.push([s]);
+  }
+  return rows.length ? rows : [[]];
+}
+
+function niceMax(x) {
+  const steps = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 600];
+  return steps.find(s => s >= x) || Math.ceil(x / 60) * 60;
+}
+
+function renderRace(r) {
+  $('workload-body').replaceChildren(
+    h('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' }, `Host tier: ${r.host_tier} · worker tier: ${r.worker_tier}`),
+    h('div', { style: 'font-size:13px;margin-top:6px' }, h('b', {}, 'Delegated subtasks'), h('ol', {}, r.subtasks.map(s => h('li', {}, s)))),
+    h('div', { style: 'font-size:13px' }, h('b', {}, 'Host’s own steps'), h('ol', {}, r.host_steps.map(s => h('li', {}, s)))));
+  const phases = [r.phases.blocking, r.phases.async];
+  const scale = niceMax(Math.max(1, ...phases.map(p => p.wall_s)));
+  const pct = (t) => `${Math.min(100, (t / scale) * 100)}%`;
+  const bar = (s, cls, text) => h('div', {
+    class: `bar ${cls}${s.open ? ' open' : ''}`,
+    style: `left:${pct(s.start)};width:${pct(Math.max(0.05, s.end - s.start))}`,
+    title: `${text} · ${fmtS(s.end - s.start)}`,
+  }, text);
+  const out = phases.map(p => h('div', { class: 'phase' },
+    h('div', { class: 'phase-head' }, h('b', {}, p.mode === 'blocking' ? 'Blocking' : 'Async'),
+      h('span', { class: 'muted' }, p.started ? `wall ${fmtS(p.wall_s)}${p.done ? '' : ' so far'} · host blocked ${fmtS(p.host_blocked_s)}` : 'waiting to start')),
+    h('div', { class: 'lane' }, h('span', { class: 'name' }, `host · ${r.host_tier}`),
+      h('div', { class: 'track' }, p.host.filter(s => s.end - s.start > 0.02 || s.open).map(s =>
+        bar(s, s.kind, s.kind === 'blocked' ? 'waiting' : s.label)))),
+    ...packRows(p.workers).map((row, i) => h('div', { class: 'lane' },
+      h('span', { class: 'name' }, i === 0 ? `worker · ${r.worker_tier}` : ''),
+      h('div', { class: 'track' }, row.map(s => bar(s, `worker ${s.outcome}`, s.label)))))));
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => h('span', { style: `left:${f * 100}%` }, fmtS(f * scale)));
+  out.push(h('div', { class: 'axis' }, ticks));
+  if (r.speedup != null) {
+    const b = r.phases.blocking, a = r.phases.async;
+    const blocked = `Host blocked ${fmtS(a.host_blocked_s)} instead of ${fmtS(b.host_blocked_s)}`;
+    const shared = 'The host stopped waiting, but if the models share one device (one GPU, or a backend that serves one request at a time), overlapped calls slow each other down and total time barely moves. That contention is itself a result worth reporting.';
+    out.push(r.speedup >= 1.2
+      ? h('div', { class: 'verdict' }, `Async finished ${r.speedup}× faster (${fmtS(a.wall_s)} vs ${fmtS(b.wall_s)}) with the same model calls. ${blocked}.`)
+      : h('div', { class: 'verdict neutral' }, r.speedup >= 1.05
+        ? `Async was only ${r.speedup}× faster (${fmtS(a.wall_s)} vs ${fmtS(b.wall_s)}), small enough to be run-to-run noise. ${blocked}. ${shared}`
+        : `No real speedup (${r.speedup}×). ${blocked}. ${shared}`));
+  }
+  $('race').replaceChildren(...out);
+}
+
+init();
+</script>
+</body>
+</html>

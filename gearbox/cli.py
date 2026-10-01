@@ -1,4 +1,4 @@
-"""Command line: `gearbox tiers | route | run | serve`."""
+"""Command line: `gearbox tiers | route | run | serve | ui`."""
 
 from __future__ import annotations
 
@@ -28,16 +28,31 @@ def main(argv: list[str] | None = None) -> None:
     p_run.add_argument("--risk", choices=RISK_LEVELS)
     p_run.add_argument("--tier")
 
-    sub.add_parser("serve", help="run the MCP server on stdio")
+    p_serve = sub.add_parser("serve", help="run the MCP server on stdio")
+    p_serve.add_argument("--dashboard", type=int, metavar="PORT", help="also serve the live dashboard")
+
+    p_ui = sub.add_parser("ui", help="open the local web dashboard")
+    p_ui.add_argument("--port", type=int, default=8765)
+    p_ui.add_argument("--host", default="127.0.0.1")
+    p_ui.add_argument("--simulate", action="store_true", help="fake models: try the UI without any backend")
 
     args = parser.parse_args(argv)
     if args.cmd == "serve":
+        import os
+
         from gearbox.integrations.mcp_server import main as serve
 
-        serve()
+        if args.config:
+            os.environ["GEARBOX_CONFIG"] = args.config
+        serve(["--dashboard", str(args.dashboard)] if args.dashboard else [])
         return
 
     config = load_config(args.config)
+    if args.cmd == "ui":
+        from gearbox.ui.server import serve as serve_ui
+
+        serve_ui(config, host=args.host, port=args.port, simulated=args.simulate)
+        return
     if args.cmd == "tiers":
         for i, t in enumerate(config.tiers):
             print(f"{i}  {t.name:<12} {t.model}  in=${t.pricing.input}/M out=${t.pricing.output}/M")

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from dataclasses import dataclass
@@ -26,6 +27,30 @@ class Provider(Protocol):
     async def complete(
         self, tier: Tier, messages: list[dict[str, str]], **kwargs: Any
     ) -> Completion: ...
+
+
+class SimulatedProvider:
+    """Offline stand-in for demos and dry runs: no model, fake text, latency that
+    grows with the tier index. Never use its numbers as results."""
+
+    def __init__(self, tier_names: list[str], base_s: float = 0.8, per_tier_s: float = 0.8) -> None:
+        self._index = {name: i for i, name in enumerate(tier_names)}
+        self.base_s = base_s
+        self.per_tier_s = per_tier_s
+
+    async def complete(
+        self, tier: Tier, messages: list[dict[str, str]], **kwargs: Any
+    ) -> Completion:
+        latency = self.base_s + self.per_tier_s * self._index.get(tier.name, 0)
+        await asyncio.sleep(latency)
+        prompt = messages[-1]["content"]
+        first_line = next((line for line in prompt.splitlines() if line and not line.startswith("#")), prompt)
+        return Completion(
+            text=f"[simulated output from {tier.name}] {first_line[:120]}",
+            input_tokens=sum(len(m["content"]) for m in messages) // 4,
+            output_tokens=150,
+            latency_s=latency,
+        )
 
 
 class LiteLLMProvider:

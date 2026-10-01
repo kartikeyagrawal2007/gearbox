@@ -4,10 +4,12 @@ fake OpenAI-compatible endpoint, so no model or network is needed."""
 import asyncio
 import json
 import logging
+import socket
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+import httpx
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -75,3 +77,56 @@ def test_delegate_round_trip_and_readable_errors(tmp_path, caplog):
     # A caller mistake comes back with its reason, not a generic "Error executing tool".
     assert bad.is_error
     assert "unknown tier 'nope'" in bad.content[0].text
+
+
+def free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def test_dashboard_shows_what_the_mcp_host_delegated(tmp_path, caplog):
+    server = HTTPServer(("127.0.0.1", 0), FakeOpenAI)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    config = tmp_path / "gearbox.yaml"
+    config.write_text(
+        "tiers:\n"
+        "  - name: t0\n"
+        "    model: openai/fake\n"
+        f"    api_base: http://127.0.0.1:{server.server_port}/v1\n"
+        "    params: {api_key: test-key-not-real}\n"
+    )
+    port = free_port()
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "gearbox.integrations.mcp_server", "--dashboard", str(port)],
+        env={"GEARBOX_CONFIG": str(config)},
+    )
+
+    async def scenario():
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                reply = await session.call_tool("delegate", {"task": "say hi from the host"})
+                task_id = json.loads(reply.content[0].text)["task_id"]
+                await session.call_tool("await_result", {"task_id": task_id, "timeout_s": 30})
+                async with httpx.AsyncClient() as http:
+                    for _ in range(50):
+                        try:
+                            tasks = (await http.get(f"http://127.0.0.1:{port}/api/tasks")).json()["tasks"]
+                            break
+                        except httpx.ConnectError:
+                            await asyncio.sleep(0.1)
+                    page = (await http.get(f"http://127.0.0.1:{port}/")).text
+                return task_id, tasks, page
+
+    try:
+        with caplog.at_level(logging.ERROR, logger="mcp.client.stdio"):
+            task_id, tasks, page = asyncio.run(scenario())
+    finally:
+        server.shutdown()
+
+    assert not [r for r in caplog.records if "Failed to parse" in r.getMessage()]
+    assert "Gearbox" in page
+    assert [t["task_id"] for t in tasks] == [task_id]
+    assert tasks[0]["state"] == "done" and tasks[0]["result"] == "hello from fake"

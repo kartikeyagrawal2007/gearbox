@@ -8,3 +8,5 @@ build/
 gearbox.yaml
 runs/
 *.jsonl
+.claude/
+.DS_Store

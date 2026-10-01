@@ -49,13 +49,13 @@ def base_tier_for(score: float, n_tiers: int) -> int:
 def leverage_for(
     config: GearboxConfig, risk: str | None, confidence: float, override: int | None = None
 ) -> int:
+    if risk is not None and risk not in RISK_LEVELS:
+        raise ValueError(f"risk must be one of {RISK_LEVELS}, got {risk!r}")
     if override is not None:
         if override < 0:
             raise ValueError("leverage must be >= 0")
         return override
     if config.risk_scaled_leverage and risk is not None:
-        if risk not in RISK_LEVELS:
-            raise ValueError(f"risk must be one of {RISK_LEVELS}, got {risk!r}")
         return RISK_LEVERAGE[risk] + (1 if confidence < LOW_CONFIDENCE else 0)
     return config.leverage
 

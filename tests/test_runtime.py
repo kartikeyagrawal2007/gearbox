@@ -27,6 +27,7 @@ def test_delegate_returns_immediately_and_host_overlaps():
     assert view["host_blocked_s"] < 0.1
     assert total < 0.35  # overlapped, not 0.2 + 0.2
     assert stats["async"]["overlap_ratio"] > 0.5
+    assert stats["async"]["awaited_tasks"] == 1
 
 
 def test_sync_run_blocks_for_whole_task():
@@ -121,3 +122,15 @@ def test_bad_inputs_rejected_up_front():
             rt.status("missing")
 
     asyncio.run(scenario())
+
+
+def test_overlap_ignores_tasks_nobody_waited_for():
+    async def scenario():
+        rt = make_runtime()
+        dt = rt.delegate("Fire and forget")
+        await asyncio.wait({dt.job})
+        return rt.stats()["async"]
+
+    stats = asyncio.run(scenario())
+    assert stats["awaited_tasks"] == 0
+    assert stats["overlap_ratio"] is None

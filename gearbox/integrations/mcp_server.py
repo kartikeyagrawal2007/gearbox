@@ -137,12 +137,44 @@ def protect_stdout() -> None:
     os.environ["LITELLM_LOG"] = "ERROR"
 
 
-def main() -> None:
+async def serve_with_dashboard(port: int) -> None:
+    """Run the MCP stdio server and the web dashboard in one process over one runtime,
+    so delegations made by the host agent show up live in the browser."""
+    import sys
+
+    import anyio
+    import uvicorn
+
+    from gearbox.ui.server import create_app
+
+    rt = runtime()
+    app = create_app(rt.config, runtime=rt)
+    # access_log=False: uvicorn's access log writes to stdout, which carries JSON-RPC.
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", access_log=False))
+    print(f"Gearbox dashboard: http://127.0.0.1:{port}", file=sys.stderr)
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(server.serve)
+        await mcp.run_stdio_async()
+        server.should_exit = True
+
+
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="gearbox-mcp", description="Gearbox MCP server (stdio).")
+    parser.add_argument("--dashboard", type=int, metavar="PORT", help="also serve the live dashboard on this port")
+    args = parser.parse_args(argv)
+
     protect_stdout()
     # Build the runtime (and import LiteLLM) at startup rather than inside the first
     # tool call. A missing or invalid config then fails at launch, where the host shows it.
     runtime()
-    mcp.run()
+    if args.dashboard:
+        import anyio
+
+        anyio.run(serve_with_dashboard, args.dashboard)
+    else:
+        mcp.run()
 
 
 if __name__ == "__main__":

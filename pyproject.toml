@@ -13,6 +13,8 @@ dependencies = [
   "litellm>=1.50",
   "mcp>=2.0",
   "pyyaml>=6.0",
+  "starlette>=0.40",
+  "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]

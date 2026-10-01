@@ -42,6 +42,7 @@ class Attempt:
     latency_s: float
     input_tokens: int = 0
     output_tokens: int = 0
+    started_at: float = 0.0  # epoch seconds, after a concurrency slot was acquired
 
 
 @dataclass
@@ -55,8 +56,11 @@ class DelegatedTask:
     attempts: list[Attempt] = field(default_factory=list)
     result: str | None = None
     error: str | None = None
+    routed_at: float | None = None
     finished_at: float | None = None
     blocked_s: float = 0.0  # host wall time spent inside await_result for this task
+    awaited: bool = False  # the host asked for the result at least once
+    active: tuple[str, float] | None = None  # (tier, started_at) of the attempt in flight
     job: asyncio.Task | None = field(default=None, repr=False)
 
     @property
@@ -67,12 +71,17 @@ class DelegatedTask:
     def view(self, include_result: bool = True) -> dict:
         d = {
             "task_id": self.id,
+            "task": self.task,
             "state": self.state.value,
             "tier": self.attempts[-1].tier if self.attempts else (self.decision.tier_name if self.decision else None),
             "routing": self.decision.as_dict() if self.decision else None,
             "attempts": [asdict(a) for a in self.attempts],
             "run_s": round(self.run_s, 3),
             "host_blocked_s": round(self.blocked_s, 3),
+            "created_at": self.created_at,
+            "routed_at": self.routed_at,
+            "finished_at": self.finished_at,
+            "active": {"tier": self.active[0], "since": self.active[1]} if self.active else None,
         }
         if include_result and self.state in TERMINAL:
             d["result"] = self.result
@@ -134,12 +143,16 @@ class DelegationRuntime:
     def status(self, task_id: str) -> dict:
         return self._get(task_id).view(include_result=False)
 
-    def list_tasks(self) -> list[dict]:
-        return [t.view(include_result=False) for t in self._tasks.values()]
+    def task(self, task_id: str) -> DelegatedTask:
+        return self._get(task_id)
+
+    def list_tasks(self, include_result: bool = False) -> list[dict]:
+        return [t.view(include_result=include_result) for t in self._tasks.values()]
 
     async def await_result(self, task_id: str, timeout_s: float | None = 60.0) -> dict:
         """Wait up to `timeout_s` (None = forever). Returns the task view, finished or not."""
         dt = self._get(task_id)
+        dt.awaited = True
         if dt.job is not None and not dt.job.done():
             start = time.perf_counter()
             await asyncio.wait({dt.job}, timeout=timeout_s)
@@ -153,13 +166,15 @@ class DelegationRuntime:
         return dt.job.cancel()
 
     def stats(self) -> dict:
-        finished = [t for t in self._tasks.values() if t.state in TERMINAL]
+        # Overlap only means something for results the host consumed; fire-and-forget
+        # tasks would otherwise count as perfect overlap.
+        finished = [t for t in self._tasks.values() if t.state in TERMINAL and t.awaited]
         run = sum(t.run_s for t in finished)
         blocked = sum(t.blocked_s for t in finished)
         return {
             **self.ledger.summary(),
             "async": {
-                "finished_tasks": len(finished),
+                "awaited_tasks": len(finished),
                 "worker_run_s": round(run, 3),
                 "host_blocked_s": round(blocked, 3),
                 # Share of worker run time the host spent doing something else.
@@ -190,6 +205,7 @@ class DelegationRuntime:
                 )
             else:
                 dt.decision = await self.router.route(messages[-1]["content"], risk=risk, leverage=leverage)
+            dt.routed_at = time.time()
             dt.state = TaskState.RUNNING
 
             tier_idx = dt.decision.tier
@@ -221,17 +237,21 @@ class DelegationRuntime:
         self, dt: DelegatedTask, tier: Tier, messages: list[dict[str, str]], timeout: float
     ) -> tuple[str, Completion | None]:
         async with self._slots:
+            began = time.time()
             start = time.perf_counter()
+            dt.active = (tier.name, began)
             try:
                 completion = await asyncio.wait_for(self.provider.complete(tier, messages), timeout)
             except asyncio.TimeoutError:
-                dt.attempts.append(Attempt(tier.name, "timeout", time.perf_counter() - start))
+                dt.attempts.append(Attempt(tier.name, "timeout", time.perf_counter() - start, started_at=began))
                 dt.error = f"timed out after {timeout}s on {tier.name}"
                 return "timeout", None
             except Exception as e:
-                dt.attempts.append(Attempt(tier.name, "error", time.perf_counter() - start))
+                dt.attempts.append(Attempt(tier.name, "error", time.perf_counter() - start, started_at=began))
                 dt.error = f"{type(e).__name__}: {e}"
                 return "error", None
+            finally:
+                dt.active = None
 
         unsure = is_unsure(completion.text)
         outcome = "unsure" if unsure else "ok"
@@ -239,6 +259,9 @@ class DelegationRuntime:
             tier, completion, role="delegate", task_id=dt.id, ok=not unsure, brief_tokens=dt.brief_tokens
         )
         dt.attempts.append(
-            Attempt(tier.name, outcome, round(completion.latency_s, 4), completion.input_tokens, completion.output_tokens)
+            Attempt(
+                tier.name, outcome, round(time.perf_counter() - start, 4),
+                completion.input_tokens, completion.output_tokens, started_at=began,
+            )
         )
         return outcome, completion
