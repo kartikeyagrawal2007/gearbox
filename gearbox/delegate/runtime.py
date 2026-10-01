@@ -96,8 +96,10 @@ class DelegationRuntime:
         provider: Provider | None = None,
         ledger: Ledger | None = None,
         router: Router | None = None,
+        call_params: dict | None = None,
     ) -> None:
         self.config = config
+        self.call_params = call_params or {}  # extra provider kwargs for every worker call, e.g. temperature
         self.provider = provider or LiteLLMProvider()
         self.ledger = ledger or Ledger(config.host)
         self.router = router or Router.from_config(config, self.provider, self.ledger)
@@ -241,7 +243,7 @@ class DelegationRuntime:
             start = time.perf_counter()
             dt.active = (tier.name, began)
             try:
-                completion = await asyncio.wait_for(self.provider.complete(tier, messages), timeout)
+                completion = await asyncio.wait_for(self.provider.complete(tier, messages, **self.call_params), timeout)
             except asyncio.TimeoutError:
                 dt.attempts.append(Attempt(tier.name, "timeout", time.perf_counter() - start, started_at=began))
                 dt.error = f"timed out after {timeout}s on {tier.name}"

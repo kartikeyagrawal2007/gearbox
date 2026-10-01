@@ -30,6 +30,9 @@ DEFAULT_HOST_STEPS = [
     "In two sentences: what is the trade-off between optimistic and pessimistic locking?",
 ]
 MODES = ("blocking", "async")
+# Greedy decoding so both phases see the same answers as far as the backend allows;
+# a sampled UNSURE in one phase but not the other changes the work done.
+CALL_PARAMS = {"temperature": 0}
 
 
 @dataclass
@@ -48,6 +51,14 @@ class RacePhase:
         self.task_ids: list[str] = []
         self.t0: float | None = None
         self.t1: float | None = None
+
+    def worker_calls(self) -> list[tuple[int, str, str]]:
+        """(subtask index, tier, outcome) for every finished worker attempt."""
+        return [
+            (i, a.tier, a.outcome)
+            for i, tid in enumerate(self.task_ids)
+            for a in self.runtime.task(tid).attempts
+        ]
 
     def snapshot(self, now: float) -> dict:
         t0 = self.t0 or now
@@ -79,6 +90,7 @@ class RacePhase:
             "done": self.t1 is not None,
             "wall_s": rel(self.t1) if self.t0 else 0.0,
             "host_blocked_s": round(blocked, 3),
+            "worker_calls": len(self.worker_calls()),
             "host": host,
             "workers": workers,
         }
@@ -103,7 +115,8 @@ class Race:
         self.worker_tier = config.tiers[config.tier_index(worker_tier) if worker_tier is not None else 0].name
         # Separate runtimes and ledgers so the two modes never share state.
         self.phases = {
-            mode: RacePhase(mode, DelegationRuntime(config, provider, Ledger(config.host))) for mode in MODES
+            mode: RacePhase(mode, DelegationRuntime(config, provider, Ledger(config.host), call_params=CALL_PARAMS))
+            for mode in MODES
         }
         self.status = "pending"
         self.error: str | None = None
@@ -152,7 +165,7 @@ class Race:
     async def _host_step(self, phase: RacePhase, prompt: str) -> None:
         span = HostSpan("work", prompt, time.time())
         phase.spans.append(span)
-        completion = await self.provider.complete(self.host_tier, [{"role": "user", "content": prompt}])
+        completion = await self.provider.complete(self.host_tier, [{"role": "user", "content": prompt}], **CALL_PARAMS)
         phase.runtime.ledger.record(self.host_tier, completion, role="direct")
         span.end = time.time()
 
@@ -166,7 +179,19 @@ class Race:
         now = time.time()
         phases = {mode: p.snapshot(now) for mode, p in self.phases.items()}
         b, a = phases["blocking"], phases["async"]
-        speedup = round(b["wall_s"] / a["wall_s"], 2) if b["done"] and a["done"] and a["wall_s"] > 0 else None
+        finished = b["done"] and a["done"]
+        speedup = round(b["wall_s"] / a["wall_s"], 2) if finished and a["wall_s"] > 0 else None
+        # Only a fair comparison if both phases made the same worker calls with the same
+        # outcomes; otherwise one phase did extra work (e.g. an escalation) and the ratio lies.
+        comparable = (
+            self.phases["blocking"].worker_calls() == self.phases["async"].worker_calls() if finished else None
+        )
+        # Async can at best remove the time the host spent blocked, so from the blocking
+        # trace alone: speedup <= wall / (wall - blocked). Contention only lowers it.
+        ceiling = (
+            round(b["wall_s"] / (b["wall_s"] - b["host_blocked_s"]), 2)
+            if b["done"] and b["wall_s"] - b["host_blocked_s"] > 0 else None
+        )
         return {
             "race_id": self.id,
             "status": self.status,
@@ -177,4 +202,6 @@ class Race:
             "host_steps": self.host_steps,
             "phases": phases,
             "speedup": speedup,
+            "comparable": comparable,
+            "speedup_ceiling": ceiling,
         }

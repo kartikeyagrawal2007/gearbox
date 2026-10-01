@@ -4,11 +4,13 @@ from __future__ import annotations
 
 UNSURE_PREFIX = "UNSURE:"
 
+# Small models over-use an escape hatch: with "if you cannot complete it reliably, reply
+# UNSURE", qwen2.5-coder:1.5b answered UNSURE (restating the task) on trivial coding
+# subtasks it solves fine without the hatch. Steer hard toward doing the work.
 WORKER_SYSTEM = (
-    "You are a focused worker model. Complete only the subtask you are given, using only "
-    "the provided context. Reply with the result itself: no preamble, no restating the task. "
-    f"If you cannot complete it reliably, reply with a first line starting with {UNSURE_PREFIX} "
-    "followed by what is missing."
+    "You are a focused worker model. Do the subtask and reply with the result only, no preamble. "
+    "Almost every subtask can be done: just do it. Only if it is impossible because information "
+    f"is missing, reply with one line: {UNSURE_PREFIX} <the missing information>."
 )
 
 

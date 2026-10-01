@@ -27,6 +27,31 @@ def test_async_overlaps_when_backend_is_concurrent():
         assert len(phase["workers"]) == 2
         assert [s["kind"] for s in phase["host"]].count("work") == 2
     assert snap["host_tier"] == "t2" and snap["worker_tier"] == "t0"
+    assert snap["comparable"] is True
+    # host blocked ~0.3s of ~0.6s in blocking -> async can at best be ~2x
+    assert 1.6 < snap["speedup_ceiling"] < 2.4
+    assert snap["speedup"] <= snap["speedup_ceiling"] + 0.15
+    assert blocking["worker_calls"] == async_["worker_calls"] == 2
+
+
+def test_race_flags_phases_that_did_different_work():
+    seen = {"subtasks": 0}
+
+    def flaky_worker(messages):
+        # The very first real subtask attempt says UNSURE (and escalates); later ones succeed.
+        if messages[-1]["content"].startswith("## Subtask"):
+            seen["subtasks"] += 1
+            if seen["subtasks"] == 1:
+                return "UNSURE: not sure"
+        return "ok"
+
+    race = Race(make_config(), FakeProvider({"t0": flaky_worker}), subtasks=["a"], host_steps=["x"])
+    asyncio.run(race.run())
+    snap = race.snapshot()
+    assert snap["status"] == "done"
+    assert snap["phases"]["blocking"]["worker_calls"] == 2  # unsure on t0, then t1
+    assert snap["phases"]["async"]["worker_calls"] == 1
+    assert snap["comparable"] is False
 
 
 def test_race_reports_failure():

@@ -54,9 +54,14 @@ claude mcp add gearbox -e GEARBOX_CONFIG=/abs/path/gearbox.yaml -- /abs/path/.ve
 
 Open http://127.0.0.1:8777, then ask Claude Code to "use gearbox to delegate writing the tests for X".
 
-Notes on the race numbers:
-- Each model is loaded with an untimed warm-up call first. Without it, the first phase pays the cold start, which inflated one early run to 1.31× when the real figure was about 1.1×.
-- When host and worker share one GPU, the host stops waiting but the overlapped calls slow each other down, so async gains little wall-clock time. On an M4 with one 14B model we measured 1.08× and 1.16× over two warm runs. Separate hardware for host and worker is where async should pay.
+How the race keeps its numbers honest:
+- **Warm-up.** Each model is loaded with an untimed call first. Without it, the first phase pays the cold start; one early run showed 1.31× when the real figure was about 1.1×.
+- **Same work.** All calls use temperature 0. If the phases still made different worker calls (say an `UNSURE` escalation in only one phase), the race reports "not comparable" instead of a speedup.
+- **Ceiling.** Async can only remove time the host spent blocked, so the race reports the best async could have done: `wall / (wall − host blocked)`, computed from the blocking phase.
+
+What it showed on an M4 Mac (host qwen2.5-coder:14b, worker qwen2.5-coder:1.5b, one shared GPU):
+- Delegation itself paid: the 1.5B finished the default subtasks in about 1s, and the workload dropped from about 25s (when everything escalated to the 14B) to about 15s.
+- Async did not: three fair runs gave 0.98–1.04×, under a ceiling of about 1.09×. The host was only blocked about 1.3s of 15s, and overlapped calls contend for the same GPU. Async should pay where workers run long and on separate hardware from the host.
 
 ## CLI
 

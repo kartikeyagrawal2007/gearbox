@@ -22,7 +22,9 @@ def make_client():
 
 def test_dashboard_page_and_config():
     with make_client() as client:
-        assert "Gearbox" in client.get("/").text
+        page = client.get("/")
+        assert "Gearbox" in page.text
+        assert page.headers["cache-control"] == "no-cache"
         cfg = client.get("/api/config").json()
         assert [t["name"] for t in cfg["tiers"]] == ["t0", "t1", "t2"]
         assert cfg["simulated"] is False

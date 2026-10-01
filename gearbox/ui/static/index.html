@@ -388,12 +388,18 @@ function renderRace(r) {
   if (r.speedup != null) {
     const b = r.phases.blocking, a = r.phases.async;
     const blocked = `Host blocked ${fmtS(a.host_blocked_s)} instead of ${fmtS(b.host_blocked_s)}`;
+    const ceiling = r.speedup_ceiling == null ? '' : ` The most async could have gained here was ${r.speedup_ceiling}×: it can only remove the ${fmtS(b.host_blocked_s)} the host spent waiting out of ${fmtS(b.wall_s)}.`;
     const shared = 'The host stopped waiting, but if the models share one device (one GPU, or a backend that serves one request at a time), overlapped calls slow each other down and total time barely moves. That contention is itself a result worth reporting.';
+    if (r.comparable === false) {
+      out.push(h('div', { class: 'verdict neutral' }, `Not comparable: the phases made different worker calls (blocking ${b.worker_calls}, async ${a.worker_calls}), so ${r.speedup}× is not a speedup. The cheap model answered differently between runs (e.g. UNSURE → escalation in one phase only). Run again; calls use temperature 0, but local backends can still vary.`));
+      $('race').replaceChildren(...out);
+      return;
+    }
     out.push(r.speedup >= 1.2
-      ? h('div', { class: 'verdict' }, `Async finished ${r.speedup}× faster (${fmtS(a.wall_s)} vs ${fmtS(b.wall_s)}) with the same model calls. ${blocked}.`)
+      ? h('div', { class: 'verdict' }, `Async finished ${r.speedup}× faster (${fmtS(a.wall_s)} vs ${fmtS(b.wall_s)}) with the same model calls. ${blocked}.${ceiling}`)
       : h('div', { class: 'verdict neutral' }, r.speedup >= 1.05
-        ? `Async was only ${r.speedup}× faster (${fmtS(a.wall_s)} vs ${fmtS(b.wall_s)}), small enough to be run-to-run noise. ${blocked}. ${shared}`
-        : `No real speedup (${r.speedup}×). ${blocked}. ${shared}`));
+        ? `Async was only ${r.speedup}× faster (${fmtS(a.wall_s)} vs ${fmtS(b.wall_s)}), small enough to be run-to-run noise. ${blocked}.${ceiling} ${shared}`
+        : `No real speedup (${r.speedup}×). ${blocked}.${ceiling} ${shared}`));
   }
   $('race').replaceChildren(...out);
 }

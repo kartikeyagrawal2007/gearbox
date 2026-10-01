@@ -48,7 +48,8 @@ def create_app(
     background: set[asyncio.Task] = set()  # keep references so race tasks aren't garbage-collected
 
     async def index(request: Request) -> FileResponse:
-        return FileResponse(STATIC / "index.html")
+        # Revalidate every load: otherwise browsers keep running an old page after an upgrade.
+        return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
     async def get_config(request: Request) -> JSONResponse:
         return JSONResponse({
