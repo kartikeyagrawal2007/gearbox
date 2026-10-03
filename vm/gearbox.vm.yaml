@@ -1,20 +1,13 @@
-# Gearbox config for the A5000 VM: one model family at six sizes, all through Ollama.
-# Prices are 0 on purpose: on this machine cost is measured as GPU time and energy,
-# not API spend. Set API-equivalent prices here if you want dollar estimates.
+# Routing ladder for the A5000 VM: one current family (Qwen3.5) at five sizes, cheapest first.
+# Thinking is switched off (reasoning_effort: none -> Ollama think: false) so tiers differ by
+# size, not by whether they reason. Prices are 0 on purpose: on this machine cost is measured
+# as GPU time and energy, not API spend.
 tiers:
-  - name: q0.5b
-    model: ollama_chat/qwen2.5-coder:0.5b
-  - name: q1.5b
-    model: ollama_chat/qwen2.5-coder:1.5b
-  - name: q3b
-    model: ollama_chat/qwen2.5-coder:3b
-  - name: q7b
-    model: ollama_chat/qwen2.5-coder:7b
-  - name: q14b
-    model: ollama_chat/qwen2.5-coder:14b
-  - name: q32b
-    model: ollama_chat/qwen2.5-coder:32b
-    context_window: 8192
+  - {name: q0.8b, model: ollama_chat/qwen3.5:0.8b, params: {reasoning_effort: none}}
+  - {name: q2b,   model: ollama_chat/qwen3.5:2b,   params: {reasoning_effort: none}}
+  - {name: q4b,   model: ollama_chat/qwen3.5:4b,   params: {reasoning_effort: none}}
+  - {name: q9b,   model: ollama_chat/qwen3.5:9b,   params: {reasoning_effort: none}}
+  - {name: q27b,  model: ollama_chat/qwen3.5:27b,  params: {reasoning_effort: none}, context_window: 8192}
 
 leverage: 1
 risk_scaled_leverage: true

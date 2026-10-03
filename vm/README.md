@@ -30,7 +30,7 @@ If it printed something, add `memory=100GB` under its `[wsl2]` section by hand i
 
 ## 1. Inside WSL (Ubuntu): clone and set up
 
-```bash
+```text
 git clone https://github.com/kartikeyagrawal2007/gearbox.git ~/gearbox && cd ~/gearbox && bash vm/setup_wsl.sh
 ```
 
@@ -38,28 +38,40 @@ The script checks the GPU, RAM and disk; installs packages (it asks for your sud
 
 **On a network that drops connections**, re-run the script and it resumes the 1.4 GB Ollama download where it stopped. If it keeps failing, download the file in a Windows browser instead: <https://ollama.com/download/ollama-linux-amd64.tar.zst>. Copy it into WSL, then re-run the script; it finds the file and skips the download:
 
-```bash
+```text
 cp /mnt/c/Users/$USER_WINDOWS/Downloads/ollama-linux-amd64.tar.zst ~/ && cd ~/gearbox && bash vm/setup_wsl.sh
 ```
 
 (Replace `$USER_WINDOWS` with your Windows user name, e.g. `PRO-LAB-2`.)
 
-## 2. Pull the model ladder
+## 2. Pull the benchmark models
 
-Six sizes of one model family, about 37 GB in total:
+The set is one current family at five sizes plus three other vendors at matched sizes. The size ladder (Qwen3.5: 0.8B, 2B, 4B, 9B, 27B) isolates model size. Granite 4.2 (IBM), Ministral 3 (Mistral) and Gemma 3 (Google) at ~3-4B and ~8-12B show results aren't Qwen-specific. That's about 60 GB, ordered small-first so every family arrives early:
 
-```bash
+```text
 cd ~/gearbox && bash vm/pull_models.sh
 ```
 
-## 3. First experiment: false-done rate vs model size
+Use `core` (Qwen3.5 ladder only) or `xfamily` (the other vendors only) to pull a subset. Re-run the same command to resume after a dropped connection.
 
-```bash
-cd ~/gearbox && mkdir -p runs && .venv/bin/python bench/false_done.py --config vm/gearbox.vm.yaml --json runs/false_done_ladder.json
+## 3. Verify the models
+
+Check that each downloaded model answers, with Qwen3.5's thinking switched off:
+
+```text
+cd ~/gearbox && .venv/bin/python vm/verify_models.py
+```
+
+## 4. First experiment: false-done rate by model
+
+Run it with the hatch on (default) and with `--hatch off`:
+
+```text
+cd ~/gearbox && mkdir -p runs && .venv/bin/python bench/false_done.py --config vm/models.vm.yaml --json runs/false_done_all.json
 ```
 
 ## Updating later
 
-```bash
+```text
 cd ~/gearbox && git pull && .venv/bin/pip install -q -e ".[dev,gpu]"
 ```
