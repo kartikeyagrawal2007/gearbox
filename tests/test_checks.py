@@ -63,6 +63,25 @@ def test_timeout_kills_runaway_code():
     assert not result.passed and "timed out" in result.output
 
 
+def test_signal_death_is_reported():
+    result = check("x = 1", "import os, signal\nos.kill(os.getpid(), signal.SIGKILL)")
+    assert not result.passed and "SIGKILL" in result.output
+
+
+def test_timeout_race_with_already_dead_process(monkeypatch):
+    """The process can die (e.g. by CPU limit) just as the wall-clock timeout fires;
+    killing it then must not crash the check (seen on Linux/WSL)."""
+    import gearbox.verify.checks as checks_module
+
+    async def finish_then_time_out(awaitable, timeout):
+        await awaitable  # let the process exit and be reaped
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(checks_module.asyncio, "wait_for", finish_then_time_out)
+    result = check(GOOD, CHECK)
+    assert not result.passed and "timed out" in result.output
+
+
 def test_environment_is_not_inherited(monkeypatch):
     monkeypatch.setenv("GEARBOX_TEST_SECRET", "s3cret")
     assert os.environ["GEARBOX_TEST_SECRET"] == "s3cret"

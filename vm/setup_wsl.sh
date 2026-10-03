@@ -48,7 +48,12 @@ note "4/7 Installing and starting Ollama"
 # Not the official `curl | sh` installer: that streams a 1.4 GB package in one go, which dies
 # on networks that drop connections. This download retries and resumes across re-runs.
 # Fallback: download the same file in a Windows browser and copy it to ~/ (see vm/README.md).
-if ! command -v ollama >/dev/null 2>&1; then
+# A half-removed install (program present, model runner gone, e.g. after an aborted official
+# installer) cannot run models, so treat "lib/ollama holds only license files" as not installed.
+OLLAMA_LIB=/usr/local/lib/ollama
+ollama_incomplete() { [ -z "$(ls "$OLLAMA_LIB" 2>/dev/null | grep -v LICENSE)" ]; }
+if ! command -v ollama >/dev/null 2>&1 || ollama_incomplete || [ "${REINSTALL_OLLAMA:-0}" = 1 ]; then
+  command -v ollama >/dev/null 2>&1 && echo "   Ollama is installed but incomplete (no model runner in $OLLAMA_LIB); reinstalling"
   PKG="$HOME/ollama-linux-amd64.tar.zst"
   if [ ! -f "$PKG" ]; then
     echo "   Downloading Ollama (~1.4 GB). If the connection drops, re-run this script: it resumes."
@@ -56,10 +61,14 @@ if ! command -v ollama >/dev/null 2>&1; then
       https://ollama.com/download/ollama-linux-amd64.tar.zst && mv "$PKG.part" "$PKG" \
       || fail "Ollama download interrupted; re-run 'bash vm/setup_wsl.sh' to resume it"
   fi
+  # Stop a running copy first: Linux refuses to overwrite a program that is executing.
+  sudo systemctl stop ollama >/dev/null 2>&1 || true
+  sudo rm -rf "$OLLAMA_LIB"
   sudo tar --zstd -xf "$PKG" -C /usr/local || fail "could not unpack $PKG; delete it and re-run"
   rm -f "$PKG"
 fi
-ok "ollama: $(ollama --version 2>/dev/null | tail -1)"
+ollama_incomplete && fail "Ollama still has no model runner in $OLLAMA_LIB after installing"
+ok "ollama $(ollama -v 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tail -1) with model runner"
 # Benchmarks need several models resident at once and no reloads mid-run.
 if [ "$(ps -p 1 -o comm=)" = "systemd" ]; then
   if ! systemctl cat ollama.service >/dev/null 2>&1; then

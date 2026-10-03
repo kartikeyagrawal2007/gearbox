@@ -18,6 +18,7 @@ import asyncio
 import functools
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -146,7 +147,9 @@ async def run_check(result_text: str, check_code: str, timeout_s: float = 20.0) 
         (workdir / "solution.py").write_text(extract_code(result_text), encoding="utf-8")
         (workdir / "check.py").write_text(check_code, encoding="utf-8")
         proc = await asyncio.create_subprocess_exec(
-            *_command(workdir, cpu_s=max(1, int(timeout_s))),
+            # The CPU limit is a backstop set past the wall-clock timeout, so the timeout acts
+            # first. With equal limits, Linux kills a busy loop by CPU limit at the same moment.
+            *_command(workdir, cpu_s=int(timeout_s) + 5),
             cwd=workdir,
             env={"PATH": "/usr/bin:/bin", "HOME": tmp, "PYTHONDONTWRITEBYTECODE": "1"},
             stdin=asyncio.subprocess.DEVNULL,
@@ -156,9 +159,16 @@ async def run_check(result_text: str, check_code: str, timeout_s: float = 20.0) 
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout_s)
         except asyncio.TimeoutError:
-            proc.kill()
+            try:
+                proc.kill()
+            except ProcessLookupError:  # it died on its own (e.g. CPU limit) as we timed out
+                pass
             await proc.wait()
             return CheckResult(False, f"check timed out after {timeout_s}s", time.perf_counter() - start, isolation_mode())
     text = out.decode("utf-8", errors="replace")
+    if proc.returncode is not None and proc.returncode < 0:
+        name = signal.Signals(-proc.returncode).name
+        reason = "exceeded its CPU time limit" if name in ("SIGXCPU", "SIGKILL") else "was killed"
+        text += f"\ncheck process {reason} ({name})"
     passed = proc.returncode == 0 and PASS_MARKER in text
     return CheckResult(passed, _tail(text), time.perf_counter() - start, isolation_mode())
