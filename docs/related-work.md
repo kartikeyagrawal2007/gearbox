@@ -1,6 +1,6 @@
 # Related work and the go/no-go gate
 
-Snapshot from a search on 2026-09-29. **Phase 0 gate:** read the "Read in full" rows. If any of them already measures *asynchronous* delegation from an expensive host to cheaper workers, with cost accounting, pivot the paper's headline from async delegation to cache-aware scheduling or risk-scaled leverage (see the plan).
+Snapshot from a search on 2026-09-29. **Gate result (2026-10-03): see [lit-review.md](lit-review.md). H1 (async delegation) is still open, so GO; H2 (false done) is well covered, so it becomes a supporting result.** **Phase 0 gate:** read the "Read in full" rows. If any of them already measures *asynchronous* delegation from an expensive host to cheaper workers, with cost accounting, pivot the paper's headline from async delegation to cache-aware scheduling or risk-scaled leverage (see the plan).
 
 ## Difficulty / query routing (mature: not our contribution)
 
