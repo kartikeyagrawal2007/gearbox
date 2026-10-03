@@ -48,10 +48,10 @@ note "4/7 Installing and starting Ollama"
 # Not the official `curl | sh` installer: that streams a 1.4 GB package in one go, which dies
 # on networks that drop connections. This download retries and resumes across re-runs.
 # Fallback: download the same file in a Windows browser and copy it to ~/ (see vm/README.md).
-# A half-removed install (program present, model runner gone, e.g. after an aborted official
-# installer) cannot run models, so treat "lib/ollama holds only license files" as not installed.
+# A partial install (e.g. an official installer interrupted mid-unpack) leaves the `ollama`
+# program without its model runner and cannot run models, so check for the runner itself.
 OLLAMA_LIB=/usr/local/lib/ollama
-ollama_incomplete() { [ -z "$(ls "$OLLAMA_LIB" 2>/dev/null | grep -v LICENSE)" ]; }
+ollama_incomplete() { [ ! -x "$OLLAMA_LIB/llama-server" ]; }
 if ! command -v ollama >/dev/null 2>&1 || ollama_incomplete || [ "${REINSTALL_OLLAMA:-0}" = 1 ]; then
   command -v ollama >/dev/null 2>&1 && echo "   Ollama is installed but incomplete (no model runner in $OLLAMA_LIB); reinstalling"
   PKG="$HOME/ollama-linux-amd64.tar.zst"
@@ -94,7 +94,7 @@ curl -s --max-time 2 localhost:11434/api/version >/dev/null && ok "ollama API an
 note "5/7 Proving GPU inference with a tiny model (qwen2.5-coder:0.5b, ~400 MB)"
 for attempt in 1 2 3 4 5; do ollama pull qwen2.5-coder:0.5b >/dev/null 2>&1 && break; sleep 3; done
 ollama list | grep -q "qwen2.5-coder:0.5b" || fail "could not pull qwen2.5-coder:0.5b after 5 tries (network?)"
-REPLY=$(ollama run qwen2.5-coder:0.5b "Reply with the single word: ready" 2>/dev/null | head -c 80)
+REPLY=$(ollama run qwen2.5-coder:0.5b "Reply with the single word: ready" 2>&1 | grep -v '^\s*$' | tail -1 | head -c 200)
 PROC=$(ollama ps | awk 'NR==2 {for (i=1;i<=NF;i++) if ($i ~ /GPU|CPU/) {print $(i-1), $i; exit}}')
 case "$PROC" in
   *100%*GPU*) ok "model ran on the GPU ($PROC); reply: ${REPLY//$'\n'/ }" ;;
