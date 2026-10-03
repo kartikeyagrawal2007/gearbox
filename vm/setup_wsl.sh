@@ -45,18 +45,33 @@ cd "$REPO" || fail "cannot cd to $REPO"
   && ok "gearbox installed ($(git log --oneline -1))" || fail "pip install failed (see output above)"
 
 note "4/7 Installing and starting Ollama"
+# Not the official `curl | sh` installer: that streams a 1.4 GB package in one go, which dies
+# on networks that drop connections. This download retries and resumes across re-runs.
+# Fallback: download the same file in a Windows browser and copy it to ~/ (see vm/README.md).
 if ! command -v ollama >/dev/null 2>&1; then
-  echo "   Ollama not found; running the official installer from ollama.com"
-  curl -fsSL https://ollama.com/install.sh | sh || fail "Ollama install failed"
+  PKG="$HOME/ollama-linux-amd64.tar.zst"
+  if [ ! -f "$PKG" ]; then
+    echo "   Downloading Ollama (~1.4 GB). If the connection drops, re-run this script: it resumes."
+    curl -fL --retry 20 --retry-all-errors --retry-delay 3 -C - -o "$PKG.part" \
+      https://ollama.com/download/ollama-linux-amd64.tar.zst && mv "$PKG.part" "$PKG" \
+      || fail "Ollama download interrupted; re-run 'bash vm/setup_wsl.sh' to resume it"
+  fi
+  sudo tar --zstd -xf "$PKG" -C /usr/local || fail "could not unpack $PKG; delete it and re-run"
+  rm -f "$PKG"
 fi
 ok "ollama: $(ollama --version 2>/dev/null | tail -1)"
 # Benchmarks need several models resident at once and no reloads mid-run.
-if [ "$(ps -p 1 -o comm=)" = "systemd" ] && systemctl list-unit-files ollama.service >/dev/null 2>&1; then
+if [ "$(ps -p 1 -o comm=)" = "systemd" ]; then
+  if ! systemctl cat ollama.service >/dev/null 2>&1; then
+    printf '[Unit]\nDescription=Ollama for Gearbox\nAfter=network-online.target\n\n[Service]\nUser=%s\nEnvironment="HOME=%s"\nExecStart=%s serve\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=multi-user.target\n' \
+      "$USER" "$HOME" "$(command -v ollama)" | sudo tee /etc/systemd/system/ollama.service >/dev/null
+  fi
   sudo mkdir -p /etc/systemd/system/ollama.service.d
   printf '[Service]\nEnvironment="OLLAMA_NUM_PARALLEL=4"\nEnvironment="OLLAMA_MAX_LOADED_MODELS=3"\nEnvironment="OLLAMA_KEEP_ALIVE=30m"\n' \
     | sudo tee /etc/systemd/system/ollama.service.d/gearbox.conf >/dev/null
-  sudo systemctl daemon-reload && sudo systemctl enable --now ollama >/dev/null 2>&1 && sudo systemctl restart ollama
-  ok "ollama runs as a systemd service (parallel=4, max loaded=3, keep alive 30m)"
+  sudo systemctl daemon-reload && sudo systemctl enable ollama >/dev/null 2>&1 && sudo systemctl restart ollama \
+    && ok "ollama runs as a systemd service (parallel=4, max loaded=3, keep alive 30m)" \
+    || fail "could not start the ollama service (run 'sudo journalctl -u ollama -n 30' and paste it)"
 else
   if ! curl -s --max-time 2 localhost:11434/api/version >/dev/null; then
     OLLAMA_NUM_PARALLEL=4 OLLAMA_MAX_LOADED_MODELS=3 OLLAMA_KEEP_ALIVE=30m nohup ollama serve > "$HOME/ollama.log" 2>&1 &
@@ -68,7 +83,8 @@ curl -s --max-time 2 localhost:11434/api/version >/dev/null && ok "ollama API an
   || fail "ollama API not reachable on localhost:11434 (is Ollama for Windows also running? quit it and retry)"
 
 note "5/7 Proving GPU inference with a tiny model (qwen2.5-coder:0.5b, ~400 MB)"
-ollama pull qwen2.5-coder:0.5b >/dev/null 2>&1 || fail "could not pull qwen2.5-coder:0.5b"
+for attempt in 1 2 3 4 5; do ollama pull qwen2.5-coder:0.5b >/dev/null 2>&1 && break; sleep 3; done
+ollama list | grep -q "qwen2.5-coder:0.5b" || fail "could not pull qwen2.5-coder:0.5b after 5 tries (network?)"
 REPLY=$(ollama run qwen2.5-coder:0.5b "Reply with the single word: ready" 2>/dev/null | head -c 80)
 PROC=$(ollama ps | awk 'NR==2 {for (i=1;i<=NF;i++) if ($i ~ /GPU|CPU/) {print $(i-1), $i; exit}}')
 case "$PROC" in

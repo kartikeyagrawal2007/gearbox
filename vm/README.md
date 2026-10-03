@@ -36,6 +36,14 @@ git clone https://github.com/kartikeyagrawal2007/gearbox.git ~/gearbox && cd ~/g
 
 The script checks the GPU, RAM and disk; installs packages (it asks for your sudo password), the Python environment and Ollama; and proves GPU inference with a 0.4 GB model. It then runs the tests and finishes with a summary block to paste back.
 
+**On a network that drops connections**, re-run the script and it resumes the 1.4 GB Ollama download where it stopped. If it keeps failing, download the file in a Windows browser instead: <https://ollama.com/download/ollama-linux-amd64.tar.zst>. Copy it into WSL, then re-run the script; it finds the file and skips the download:
+
+```bash
+cp /mnt/c/Users/$USER_WINDOWS/Downloads/ollama-linux-amd64.tar.zst ~/ && cd ~/gearbox && bash vm/setup_wsl.sh
+```
+
+(Replace `$USER_WINDOWS` with your Windows user name, e.g. `PRO-LAB-2`.)
+
 ## 2. Pull the model ladder
 
 Six sizes of one model family, about 37 GB in total:

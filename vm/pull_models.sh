@@ -11,7 +11,12 @@ SIZES=("$@")
 echo "Free disk in \$HOME: $(df -h --output=avail "$HOME" | tail -1 | tr -d ' ')"
 for size in "${SIZES[@]}"; do
   echo "== pulling qwen2.5-coder:$size"
-  ollama pull "qwen2.5-coder:$size" || echo "   FAILED: qwen2.5-coder:$size"
+  # Flaky networks drop long downloads; ollama resumes partial layers, so just retry.
+  for attempt in 1 2 3 4 5 6 7 8; do
+    ollama pull "qwen2.5-coder:$size" && break
+    echo "   connection dropped (try $attempt of 8); resuming in 5s"; sleep 5
+  done
+  ollama list | grep -q "qwen2.5-coder:$size" || echo "   FAILED: qwen2.5-coder:$size (re-run this script to resume)"
 done
 echo
 echo "=================== PASTE EVERYTHING BELOW THIS LINE ==================="
