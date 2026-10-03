@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> None:
     p_ui.add_argument("--port", type=int, default=8790)
     p_ui.add_argument("--host", default="127.0.0.1")
     p_ui.add_argument("--simulate", action="store_true", help="fake models: try the UI without any backend")
+    p_ui.add_argument("--runs", default="runs", help="folder of benchmark JSON results to show (default: runs)")
 
     args = parser.parse_args(argv)
     if args.cmd == "serve":
@@ -52,7 +53,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "ui":
         from gearbox.ui.server import serve as serve_ui
 
-        serve_ui(config, host=args.host, port=args.port, simulated=args.simulate)
+        serve_ui(config, host=args.host, port=args.port, simulated=args.simulate, runs_dir=args.runs)
         return
     if args.cmd == "tiers":
         for i, t in enumerate(config.tiers):

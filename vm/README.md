@@ -54,6 +54,21 @@ cd ~/gearbox && bash vm/pull_models.sh
 
 Use `core` (Qwen3.5 ladder only) or `xfamily` (the other vendors only) to pull a subset. Re-run the same command to resume after a dropped connection.
 
+## Watch it in the browser
+
+Open a second Ubuntu tab and start the dashboard with every benchmark model listed:
+
+```text
+cd ~/gearbox && .venv/bin/gearbox --config vm/models.vm.yaml ui
+```
+
+Then open <http://127.0.0.1:8790> in Firefox or Edge on the lab PC. `networkingMode=mirrored` shares WSL's localhost with Windows. It shows:
+- which models have finished downloading (it refreshes every 15 s)
+- the race, with host and worker picked from downloaded models
+- a **Benchmark results** table built from everything in `runs/`, refreshed every 10 s
+
+Keep that tab open while you use it.
+
 ## 3. Verify the models
 
 Check that each downloaded model answers, with Qwen3.5's thinking switched off:

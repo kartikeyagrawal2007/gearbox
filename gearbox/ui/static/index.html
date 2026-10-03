@@ -106,6 +106,13 @@
   @media (prefers-reduced-motion: reduce) { .bar.open, .spin { animation: none; } }
   .axis { position: relative; height: 18px; margin-left: 130px; font-size: 11px; color: var(--muted); }
   .axis span { position: absolute; transform: translateX(-50%); }
+  .chip.missing { opacity: .55; border-style: dashed; }
+  .chip.missing small::after { content: " · not downloaded"; }
+  .race-pick { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 10px; }
+  .race-pick > div { min-width: 180px; }
+  .rate { display: inline-block; width: 70px; height: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; vertical-align: middle; margin-right: 6px; }
+  .rate > i { display: block; height: 100%; background: var(--worker); }
+  td.bad { color: var(--bad); font-weight: 600; }
   .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 14px; flex-wrap: wrap; }
   .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   .verdict { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
@@ -166,6 +173,11 @@
 
   <section class="card wide" aria-labelledby="h-race">
     <h2 id="h-race">Race: blocking vs async <span class="hint">same model calls, two schedules, measured timelines</span></h2>
+    <div class="race-pick">
+      <div><label for="race-host">Host (expensive model)</label><select id="race-host"></select></div>
+      <div><label for="race-worker">Worker (cheap model)</label><select id="race-worker"></select></div>
+    </div>
+    <div id="race-err" class="err" role="alert"></div>
     <div class="actions" style="margin-top:0">
       <button class="btn primary" id="btn-race">Run race</button>
       <span id="race-msg" class="muted"></span>
@@ -178,6 +190,11 @@
       <span><i style="background:var(--worker-soft);border:1px solid var(--worker)"></i>cheap worker</span>
       <span><i style="background:var(--warn-soft);border:1px solid var(--warn)"></i>unsure / timeout</span>
     </div>
+  </section>
+
+  <section class="card wide" aria-labelledby="h-bench">
+    <h2 id="h-bench">Benchmark results <span class="hint">latest result per model, from the runs folder</span></h2>
+    <div id="bench"><div class="empty">Loading…</div></div>
   </section>
 </main>
 
@@ -214,10 +231,7 @@ async function init() {
   const mode = $('mode');
   mode.textContent = CONFIG.simulated ? 'simulated models' : 'real models';
   mode.className = 'badge ' + (CONFIG.simulated ? 'sim' : 'real');
-  $('ladder').replaceChildren(...CONFIG.tiers.map((t, i) =>
-    h('span', { class: 'chip', title: t.model }, h('b', {}, `${i} ${t.name}`), h('small', {}, t.model.split('/').pop()))));
-  $('tier').replaceChildren(h('option', { value: '' }, 'Auto (route by difficulty)'),
-    ...CONFIG.tiers.map(t => h('option', { value: t.name }, `${t.name} · ${t.model.split('/').pop()}`)));
+  renderTiers();
   const riskOpts = [['', 'Unset'], ...CONFIG.risks.map(r => [r, r[0].toUpperCase() + r.slice(1)])];
   $('risk').replaceChildren(...riskOpts.map(([v, label]) =>
     h('button', { type: 'button', 'data-v': v, class: v === risk ? 'on' : '', onclick: () => setRisk(v) }, label)));
@@ -225,6 +239,33 @@ async function init() {
   if (!CONFIG.code_checks) { $('check').disabled = true; $('check-off').hidden = false; }
   poll();
   setInterval(poll, 800);
+  pollBench();
+  setInterval(pollBench, 10000);
+  // Models download in the background on the VM; refresh which ones are ready.
+  setInterval(async () => { try { CONFIG = { ...CONFIG, tiers: (await api('/api/config')).tiers }; renderTiers(); } catch (e) {} }, 15000);
+}
+
+const modelName = (t) => t.model.split('/').pop();
+const usable = (t) => t.available !== false;
+
+function fillSelect(sel, options, keep) {
+  sel.replaceChildren(...options.map(([value, label, disabled]) => h('option', { value, disabled: disabled ? '' : null }, label)));
+  if (keep && [...sel.options].some(o => o.value === keep && !o.disabled)) sel.value = keep;
+}
+
+function renderTiers() {
+  $('ladder').replaceChildren(...CONFIG.tiers.map((t, i) =>
+    h('span', { class: 'chip' + (usable(t) ? '' : ' missing'), title: usable(t) ? t.model : `${t.model}: not downloaded yet` },
+      h('b', {}, `${i} ${t.name}`), h('small', {}, modelName(t)))));
+  fillSelect($('tier'), [['', 'Auto (route by difficulty)'],
+    ...CONFIG.tiers.map(t => [t.name, `${t.name} · ${modelName(t)}${usable(t) ? '' : ' (not downloaded)'}`, !usable(t)])], $('tier').value);
+  const ready = CONFIG.tiers.filter(usable);
+  const opts = CONFIG.tiers.map(t => [t.name, `${t.name} · ${modelName(t)}${usable(t) ? '' : ' (not downloaded)'}`, !usable(t)]);
+  // Defaults: the largest downloaded model hosts, the smallest works.
+  fillSelect($('race-host'), opts, $('race-host').value || (ready.at(-1) || {}).name);
+  fillSelect($('race-worker'), opts, $('race-worker').value || (ready[0] || {}).name);
+  $('btn-race').disabled = ready.length === 0 || raceTimer !== null;
+  $('race-err').textContent = ready.length ? '' : 'No models downloaded yet for this config.';
 }
 
 function setRisk(v) {
@@ -341,10 +382,15 @@ function renderLedger(l) {
 }
 
 let raceTimer = null;
+['race-host', 'race-worker'].forEach(id => $(id).addEventListener('change', () => { $('race-err').textContent = ''; }));
 $('btn-race').addEventListener('click', async () => {
+  const host_tier = $('race-host').value, worker_tier = $('race-worker').value;
+  if (!host_tier || !worker_tier) { $('race-err').textContent = 'Pick a downloaded host and worker first.'; return; }
+  if (host_tier === worker_tier) { $('race-err').textContent = 'Pick two different models: the race compares an expensive host with a cheaper worker.'; return; }
+  $('race-err').textContent = '';
   $('btn-race').disabled = true;
   try {
-    const { race_id } = await api('/api/race', {});
+    const { race_id } = await api('/api/race', { host_tier, worker_tier });
     $('race-msg').textContent = 'Running blocking first, then async…';
     const tick = async () => {
       const r = await api('/api/race/' + race_id);
@@ -352,7 +398,7 @@ $('btn-race').addEventListener('click', async () => {
       else if (r.status === 'running') $('race-msg').textContent = r.phases.async.started ? 'Running async…' : 'Running blocking…';
       renderRace(r);
       if (r.status === 'done' || r.status === 'failed') {
-        clearInterval(raceTimer); $('btn-race').disabled = false;
+        clearInterval(raceTimer); raceTimer = null; $('btn-race').disabled = false;
         $('race-msg').textContent = r.status === 'failed' ? 'Race failed: ' + r.error : 'Finished.';
       }
     };
@@ -368,6 +414,32 @@ function packRows(spans) {
     row ? row.push(s) : rows.push([s]);
   }
   return rows.length ? rows : [[]];
+}
+
+async function pollBench() {
+  let data;
+  try { data = await api('/api/runs'); } catch (e) { return; }
+  const box = $('bench');
+  if (!data.combined.length) {
+    box.replaceChildren(h('div', { class: 'empty' }, `No results yet in ${data.runs_dir}/. Run bench/false_done.py with --json runs/<name>.json and they appear here.`));
+    return;
+  }
+  const pct = (x) => x == null ? '–' : Math.round(x * 100) + '%';
+  box.replaceChildren(
+    h('table', { 'aria-label': 'Benchmark results by model' },
+      h('thead', {}, h('tr', {}, h('th', {}, 'Model'), h('th', {}, 'UNSURE hatch'), h('th', {}, 'Passed'),
+        h('th', { class: 'n' }, 'Unsure'),
+        h('th', { class: 'n', title: 'Of the answers that claimed success, the share that failed their check' }, 'False done'),
+        h('th', {}, 'From'))),
+      h('tbody', {}, data.combined.map(r => h('tr', {},
+        h('td', {}, h('b', {}, r.tier)), h('td', {}, r.hatch),
+        h('td', {}, h('span', { class: 'rate', role: 'img', 'aria-label': `${r.passed} of ${r.tasks} passed` }, h('i', { style: `width:${(r.passed / r.tasks) * 100}%` })), `${r.passed}/${r.tasks}`),
+        h('td', { class: 'n' }, `${r.unsure}/${r.tasks}`),
+        h('td', { class: 'n' + (r.false_done_rate >= 0.3 ? ' bad' : '') }, pct(r.false_done_rate)),
+        h('td', { class: 'muted' }, r.file))))),
+    h('details', {}, h('summary', {}, `${data.files.length} result file${data.files.length === 1 ? '' : 's'} in ${data.runs_dir}/`),
+      h('ul', { style: 'font-size:12px;margin:6px 0 0' }, data.files.map(f => h('li', {}, f.file,
+        f.error ? h('span', { class: 'err' }, ` (${f.error})`) : h('span', { class: 'muted' }, ` · ${f.results.length} model${f.results.length === 1 ? '' : 's'}`))))));
 }
 
 function niceMax(x) {
