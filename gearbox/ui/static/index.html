@@ -79,7 +79,10 @@
   .s-done { background: var(--ok-soft); color: var(--ok); }
   .s-failed { background: var(--bad-soft); color: var(--bad); }
   .s-cancelled { background: var(--bg); color: var(--muted); }
-  .o-ok { color: var(--ok); } .o-unsure, .o-timeout { color: var(--warn); } .o-error { color: var(--bad); }
+  .o-ok { color: var(--ok); } .o-unsure, .o-timeout { color: var(--warn); } .o-error, .o-check_failed { color: var(--bad); }
+  .s-verified { background: var(--ok-soft); color: var(--ok); }
+  .s-unverified { background: var(--bad-soft); color: var(--bad); }
+  textarea.mono { font: 12px/1.5 var(--mono); }
   details { margin-top: 8px; }
   summary { cursor: pointer; font-size: 12px; color: var(--muted); }
   pre { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; overflow: auto; max-height: 320px; font: 12px/1.5 var(--mono); white-space: pre-wrap; margin: 6px 0 0; }
@@ -134,6 +137,9 @@
         <select id="tier"></select>
       </div>
     </div>
+    <label for="check">Check <span class="muted">(optional Python asserts run against the answer; a failing answer escalates)</span></label>
+    <textarea id="check" class="mono" style="min-height:52px" placeholder="assert slugify('Héllo  World!') == 'hello-world'&#10;assert slugify('') == ''"></textarea>
+    <div id="check-off" class="muted" style="font-size:12px;margin-top:4px" hidden>Checks are off: set <code>code_checks: true</code> in gearbox.yaml to enable them. They run model-written code.</div>
     <label for="context">Context <span class="muted">(optional: everything here costs host output tokens)</span></label>
     <textarea id="context" style="min-height:40px"></textarea>
     <label id="risk-label">Risk of a wrong answer</label>
@@ -186,7 +192,7 @@ function h(tag, props = {}, ...children) {
     else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
     else node.setAttribute(k, v);
   }
-  for (const c of children.flat()) if (c != null && c !== false) node.append(c instanceof Node ? c : String(c));
+  for (const c of children.flat(Infinity)) if (c != null && c !== false) node.append(c instanceof Node ? c : String(c));
   return node;
 }
 const fmtS = (s) => s == null ? '–' : s < 10 ? s.toFixed(1) + 's' : Math.round(s) + 's';
@@ -216,6 +222,7 @@ async function init() {
   $('risk').replaceChildren(...riskOpts.map(([v, label]) =>
     h('button', { type: 'button', 'data-v': v, class: v === risk ? 'on' : '', onclick: () => setRisk(v) }, label)));
   setRisk('low');
+  if (!CONFIG.code_checks) { $('check').disabled = true; $('check-off').hidden = false; }
   poll();
   setInterval(poll, 800);
 }
@@ -229,7 +236,7 @@ function readForm() {
   const task = $('task').value.trim();
   $('task-err').textContent = task ? '' : 'Enter a subtask first.';
   if (!task) { $('task').focus(); return null; }
-  return { task, context: $('context').value, acceptance: $('acceptance').value, risk, tier: $('tier').value };
+  return { task, context: $('context').value, acceptance: $('acceptance').value, risk, tier: $('tier').value, check: $('check').value };
 }
 $('task').addEventListener('input', () => { if ($('task').value.trim()) $('task-err').textContent = ''; $('preview').hidden = true; });
 
@@ -287,18 +294,23 @@ function renderTasks(tasks) {
     const r = t.routing;
     const route = r ? `difficulty ${r.difficulty.toFixed(2)} → ${CONFIG.tiers[r.base_tier_index]?.name ?? '?'}${r.leverage ? ` +${r.leverage}` : ''} → ${r.tier}` : 'routing…';
     const attempts = t.attempts.map(a => h('span', { class: 'chip' },
-      h('b', {}, a.tier), h('span', { class: 'o-' + a.outcome }, a.outcome), fmtS(a.latency_s),
-      a.output_tokens ? h('small', {}, `${a.input_tokens}→${a.output_tokens} tok`) : null));
+      h('b', {}, a.tier), h('span', { class: 'o-' + a.outcome }, a.outcome.replace('_', ' ')), fmtS(a.latency_s),
+      a.output_tokens ? h('small', {}, `${a.input_tokens}→${a.output_tokens} tok`) : null,
+      a.check ? h('span', { class: a.check.passed ? 'o-ok' : 'o-error', title: a.check.isolation }, a.check.passed ? '✓ check' : '✗ check') : null));
+    const failedChecks = t.attempts.filter(a => a.check && !a.check.passed);
     if (t.active) attempts.push(h('span', { class: 'chip' }, h('b', {}, t.active.tier), h('span', { class: 'spin', 'aria-label': 'running' })));
     const details = (t.result || t.error) ? h('details', {
       open: openResults.has(t.task_id) ? '' : null,
       ontoggle: (e) => e.target.open ? openResults.add(t.task_id) : openResults.delete(t.task_id),
     }, h('summary', {}, t.error ? 'Result and error' : 'Result'),
       t.error ? h('div', { class: 'err' }, t.error) : null,
+      failedChecks.map(a => [h('div', { class: 'muted', style: 'font-size:12px;margin-top:8px' }, `Check failed on ${a.tier} (${a.check.isolation}):`), h('pre', {}, a.check.output)]),
+      t.result ? h('div', { class: 'muted', style: 'font-size:12px;margin-top:8px' }, t.verified === false ? 'Last answer (failed its check):' : 'Answer:') : null,
       t.result ? h('pre', {}, t.result) : null) : null;
     return h('div', { class: 'task' },
       h('div', { class: 'top' },
         h('span', { class: 'pill s-' + t.state }, live ? h('span', { class: 'spin', style: 'width:8px;height:8px;margin-right:5px' }) : null, t.state),
+        t.verified === true ? h('span', { class: 'pill s-verified' }, 'verified') : t.verified === false ? h('span', { class: 'pill s-unverified' }, 'check failed') : null,
         h('span', { class: 'title', title: t.task }, t.task),
         h('span', { class: 'muted', style: 'font-variant-numeric:tabular-nums' }, fmtS(elapsed)),
         live ? h('button', { class: 'btn small', onclick: async () => { await api(`/api/tasks/${t.task_id}/cancel`, {}); poll(); } }, 'Cancel') : null),
@@ -318,10 +330,12 @@ function renderLedger(l) {
   $('stats').replaceChildren(...tiles.map(([k, v]) => h('div', { class: 'stat', title: k === 'Host overlap' ? 'Share of worker run time the host spent on other work. Only counts results the host waited for (via MCP await_result or a race); the dashboard itself never waits.' : null }, h('div', { class: 'v' }, v), h('div', { class: 'k' }, k))));
   const rows = Object.entries(l.by_tier || {});
   $('tier-table').replaceChildren(
-    h('thead', {}, h('tr', {}, h('th', {}, 'Tier'), h('th', { class: 'n' }, 'Calls'), h('th', { class: 'n' }, 'In tok'), h('th', { class: 'n' }, 'Out tok'), h('th', { class: 'n' }, 'Cost'))),
+    h('thead', {}, h('tr', {}, h('th', {}, 'Tier'), h('th', { class: 'n' }, 'Calls'), h('th', { class: 'n' }, 'In tok'), h('th', { class: 'n' }, 'Out tok'), h('th', { class: 'n' }, 'Cost'),
+      h('th', { class: 'n', title: 'Share of checked answers that claimed success but failed their check' }, 'False done'))),
     h('tbody', {}, rows.length ? rows.map(([name, t]) => h('tr', {}, h('td', {}, name), h('td', { class: 'n' }, fmtN(t.calls)),
-      h('td', { class: 'n' }, fmtN(t.input_tokens)), h('td', { class: 'n' }, fmtN(t.output_tokens)), h('td', { class: 'n' }, fmtUsd(t.cost_usd))))
-      : h('tr', {}, h('td', { colspan: 5, class: 'muted' }, 'No calls yet'))));
+      h('td', { class: 'n' }, fmtN(t.input_tokens)), h('td', { class: 'n' }, fmtN(t.output_tokens)), h('td', { class: 'n' }, fmtUsd(t.cost_usd)),
+      h('td', { class: 'n' }, name in (l.false_done_rate || {}) ? `${Math.round(l.false_done_rate[name] * 100)}% of ${fmtN(t.checked)}` : '–')))
+      : h('tr', {}, h('td', { colspan: 6, class: 'muted' }, 'No calls yet'))));
   $('assumptions').textContent = l.savings_assumptions || '';
   $('assumptions').title = l.savings_assumptions || '';
 }

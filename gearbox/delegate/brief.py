@@ -14,12 +14,14 @@ WORKER_SYSTEM = (
 )
 
 
-def build_messages(task: str, context: str = "", acceptance: str = "") -> list[dict[str, str]]:
+def build_messages(task: str, context: str = "", acceptance: str = "", check: str = "") -> list[dict[str, str]]:
     parts = [f"## Subtask\n{task.strip()}"]
     if context.strip():
         parts.append(f"## Context\n{context.strip()}")
     if acceptance.strip():
         parts.append(f"## Done when\n{acceptance.strip()}")
+    if check.strip():
+        parts.append(f"## Your answer must pass this check\n```python\n{check.strip()}\n```")
     return [
         {"role": "system", "content": WORKER_SYSTEM},
         {"role": "user", "content": "\n\n".join(parts)},
@@ -33,3 +35,15 @@ def is_unsure(text: str) -> bool:
 def estimate_tokens(text: str) -> int:
     """Rough token count (~4 chars/token); only used for savings estimates."""
     return (len(text) + 3) // 4
+
+
+def repair_messages(messages: list[dict[str, str]], failed_answer: str, check_output: str) -> list[dict[str, str]]:
+    """Messages for the next tier after a failed check: the previous answer plus why it failed."""
+    return [
+        *messages,
+        {"role": "assistant", "content": failed_answer},
+        {"role": "user", "content": (
+            f"That answer failed the check:\n```\n{check_output}\n```\n"
+            "Fix it. Reply with the complete corrected result only."
+        )},
+    ]

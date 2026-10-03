@@ -53,6 +53,10 @@ class GearboxConfig:
     max_concurrent: int = 4
     task_timeout_s: float = 600.0
     max_escalations: int = 1
+    # Executable acceptance checks run model-written code (best-effort isolation, see
+    # gearbox/verify/checks.py), so they are opt-in.
+    code_checks: bool = False
+    check_timeout_s: float = 20.0
 
     def __post_init__(self) -> None:
         if not self.tiers:

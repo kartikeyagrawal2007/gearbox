@@ -44,7 +44,7 @@ gearbox ui --simulate          # instant: fake models, no backend needed
 gearbox ui                     # real models from gearbox.yaml (e.g. Ollama)
 ```
 
-Then open http://127.0.0.1:8765. The dashboard binds to localhost only and has no auth.
+Then open http://127.0.0.1:8790 (change it with `--port`). The dashboard binds to localhost only and has no auth.
 
 **With a real agent as the host**, let the MCP server serve the dashboard too. Delegations Claude Code makes then appear live:
 
@@ -62,6 +62,26 @@ How the race keeps its numbers honest:
 What it showed on an M4 Mac (host qwen2.5-coder:14b, worker qwen2.5-coder:1.5b, one shared GPU):
 - Delegation itself paid: the 1.5B finished the default subtasks in about 1s, and the workload dropped from about 25s (when everything escalated to the 14B) to about 15s.
 - Async did not: three fair runs gave 0.98–1.04×, under a ceiling of about 1.09×. The host was only blocked about 1.3s of 15s, and overlapped calls contend for the same GPU. Async should pay where workers run long and on separate hardware from the host.
+
+## Verify, don't trust: executable checks
+
+Models often claim success when they're wrong. Pass a `check`, Python asserts or `test_*` functions, and Gearbox runs it against the worker's answer. An answer is accepted only if it passes. A failing answer (a "false done") escalates one tier, and the next model sees the failed answer and exactly what went wrong, e.g. `slugify('Héllo  World!') returned 'héllo-world', expected 'hello-world'`.
+
+```bash
+gearbox run "Write add(a, b). Code only." --tier small --check "assert add(2, 3) == 5"
+```
+
+The same `check` parameter works on the MCP `delegate` tool and in the dashboard. Results report `verified: true/false`, and the ledger tracks each tier's false-done rate.
+
+Checks **execute model-written code**, so they are off unless `code_checks: true`. Isolation is best effort, not a security boundary: a temp dir, an empty environment, Python isolated mode, a timeout, CPU and file limits, and no network (`sandbox-exec` on macOS, `unshare -rn` on Linux when permitted).
+
+To measure each model's false-done rate on 8 coding tasks:
+
+```bash
+python bench/false_done.py --config gearbox.yaml --tiers small large
+```
+
+First result: qwen2.5-coder:1.5b passed 5/8 and claimed success on all 8. That's a 37.5% false-done rate, and not one of its wrong answers said "unsure".
 
 ## CLI
 

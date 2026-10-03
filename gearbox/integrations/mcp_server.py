@@ -27,7 +27,10 @@ transforming data.
 Everything you write into `task` and `context` is billed as your own output tokens, so keep \
 briefs short.
 Flow: call `delegate`, which returns a task_id immediately. Continue with independent work, \
-then call `await_result` only when you need the output. Verify the result before relying on it.
+then call `await_result` only when you need the output.
+Verify: for code, pass `check` (Python asserts or test_ functions). Gearbox runs it against the \
+worker's answer, escalates to a stronger tier if it fails, and reports `verified`. Without a check, \
+verify the result yourself before relying on it.
 Do not delegate: steps that need your full conversation history, open design decisions, or \
 irreversible actions. Set `risk` honestly: higher risk routes to a stronger model.
 """
@@ -73,6 +76,7 @@ async def delegate(
     risk: str = "low",
     tier: str | None = None,
     expected_output_tokens: int | None = None,
+    check: str = "",
 ) -> dict:
     """Hand a self-contained subtask to a cheaper model. Returns immediately with a task_id.
 
@@ -83,10 +87,13 @@ async def delegate(
     risk: "low" | "medium" | "high". Higher risk routes to a stronger tier.
     tier: force a specific tier by name (skips difficulty routing).
     expected_output_tokens: optional; if given, a break-even estimate is included in the reply.
+    check: optional Python test code run against the answer. The worker's code is loaded first,
+      then your asserts or test_* functions run; RESULT holds the raw reply text. Failing answers
+      escalate to a stronger tier with the failure shown to it.
     """
     with caller_errors():
         rt = runtime()
-        dt = rt.delegate(task, context=context, acceptance=acceptance, risk=risk, tier=tier)
+        dt = rt.delegate(task, context=context, acceptance=acceptance, risk=risk, tier=tier, check=check)
         reply = {"task_id": dt.id, "state": dt.state.value, "next": "continue other work; call await_result when needed"}
         if expected_output_tokens:
             # Priced against the cheapest tier; routing may pick a higher one.

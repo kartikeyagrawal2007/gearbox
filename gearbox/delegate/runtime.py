@@ -6,7 +6,9 @@ recorded per task: `blocked_s` versus the task's own run time measures how
 much of the worker's time the host overlapped with useful work.
 
 If a worker replies UNSURE, errors, or times out, the subtask moves up one
-tier (at most `config.max_escalations` times).
+tier (at most `config.max_escalations` times). With an executable `check`, an
+answer is only accepted once it passes; a failed check ("false done") also
+escalates, and the next tier sees the failed answer and the failure output.
 """
 
 from __future__ import annotations
@@ -19,9 +21,10 @@ from enum import Enum
 
 from gearbox.config import RISK_LEVELS, GearboxConfig, Tier
 from gearbox.cost.ledger import Ledger
-from gearbox.delegate.brief import build_messages, estimate_tokens, is_unsure
+from gearbox.delegate.brief import build_messages, estimate_tokens, is_unsure, repair_messages
 from gearbox.providers import Completion, LiteLLMProvider, Provider
 from gearbox.router import Router, RoutingDecision
+from gearbox.verify.checks import run_check
 
 
 class TaskState(str, Enum):
@@ -38,11 +41,12 @@ TERMINAL = frozenset({TaskState.DONE, TaskState.FAILED, TaskState.CANCELLED})
 @dataclass
 class Attempt:
     tier: str
-    outcome: str  # "ok" | "unsure" | "error" | "timeout"
+    outcome: str  # "ok" | "unsure" | "check_failed" | "error" | "timeout"
     latency_s: float
     input_tokens: int = 0
     output_tokens: int = 0
     started_at: float = 0.0  # epoch seconds, after a concurrency slot was acquired
+    check: dict | None = None  # CheckResult.as_dict() when an executable check ran
 
 
 @dataclass
@@ -51,6 +55,7 @@ class DelegatedTask:
     task: str
     brief_tokens: int
     created_at: float
+    check: str = ""
     state: TaskState = TaskState.ROUTING
     decision: RoutingDecision | None = None
     attempts: list[Attempt] = field(default_factory=list)
@@ -82,6 +87,8 @@ class DelegatedTask:
             "routed_at": self.routed_at,
             "finished_at": self.finished_at,
             "active": {"tier": self.active[0], "since": self.active[1]} if self.active else None,
+            # True/False once an executable check decided; None when there was no check.
+            "verified": (self.state is TaskState.DONE) if self.check and self.state in TERMINAL else None,
         }
         if include_result and self.state in TERMINAL:
             d["result"] = self.result
@@ -115,19 +122,29 @@ class DelegationRuntime:
         tier: str | int | None = None,
         leverage: int | None = None,
         timeout_s: float | None = None,
+        check: str = "",
     ) -> DelegatedTask:
-        """Schedule a subtask and return immediately. Must be called inside a running event loop."""
+        """Schedule a subtask and return immediately. Must be called inside a running event loop.
+
+        `check`: Python test code run against the worker's answer (see gearbox/verify/checks.py).
+        """
         if not task.strip():
             raise ValueError("task must not be empty")
+        if check.strip() and not self.config.code_checks:
+            raise ValueError(
+                "executable checks are disabled: set `code_checks: true` in gearbox.yaml "
+                "(they run model-written code with best-effort isolation)"
+            )
         if risk is not None and risk not in RISK_LEVELS:
             raise ValueError(f"risk must be one of {RISK_LEVELS}, got {risk!r}")
-        forced =self.config.tier_index(tier) if tier is not None else None
-        messages = build_messages(task, context, acceptance)
+        forced = self.config.tier_index(tier) if tier is not None else None
+        messages = build_messages(task, context, acceptance, check)
         dt = DelegatedTask(
             id=uuid.uuid4().hex[:8],
             task=task,
-            brief_tokens=estimate_tokens(task + context + acceptance),
+            brief_tokens=estimate_tokens(task + context + acceptance + check),
             created_at=time.time(),
+            check=check.strip(),
         )
         timeout = timeout_s or self.config.task_timeout_s
         dt.job = asyncio.get_running_loop().create_task(
@@ -217,6 +234,11 @@ class DelegationRuntime:
                 if outcome == "ok":
                     dt.result, dt.error, dt.state = completion.text, None, TaskState.DONE
                     return
+                if outcome == "check_failed":
+                    check_output = dt.attempts[-1].check["output"]
+                    dt.result = completion.text
+                    dt.error = f"check failed on {self.config.tiers[tier_idx].name}: {check_output.splitlines()[-1] if check_output else ''}"
+                    messages = repair_messages(messages, completion.text, check_output)
                 if escalations > 0 and tier_idx < self.config.top:
                     escalations -= 1
                     tier_idx += 1
@@ -255,15 +277,24 @@ class DelegationRuntime:
             finally:
                 dt.active = None
 
-        unsure = is_unsure(completion.text)
-        outcome = "unsure" if unsure else "ok"
+        latency = round(time.perf_counter() - start, 4)
+        check = None
+        if is_unsure(completion.text):
+            outcome = "unsure"
+        elif dt.check:
+            # Runs outside the concurrency slot: it occupies the CPU, not a model.
+            check = await run_check(completion.text, dt.check, self.config.check_timeout_s)
+            outcome = "ok" if check.passed else "check_failed"
+        else:
+            outcome = "ok"
         self.ledger.record(
-            tier, completion, role="delegate", task_id=dt.id, ok=not unsure, brief_tokens=dt.brief_tokens
+            tier, completion, role="delegate", task_id=dt.id, ok=outcome == "ok",
+            brief_tokens=dt.brief_tokens, check_passed=None if check is None else check.passed,
         )
         dt.attempts.append(
             Attempt(
-                tier.name, outcome, round(time.perf_counter() - start, 4),
-                completion.input_tokens, completion.output_tokens, started_at=began,
+                tier.name, outcome, latency, completion.input_tokens, completion.output_tokens,
+                started_at=began, check=None if check is None else check.as_dict(),
             )
         )
         return outcome, completion

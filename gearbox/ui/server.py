@@ -58,6 +58,7 @@ def create_app(
             "leverage": config.leverage,
             "risk_scaled_leverage": config.risk_scaled_leverage,
             "difficulty": config.difficulty,
+            "code_checks": config.code_checks,
             "tiers": [
                 {"name": t.name, "model": t.model, "input_price": t.pricing.input, "output_price": t.pricing.output}
                 for t in config.tiers
@@ -79,6 +80,7 @@ def create_app(
             acceptance=body.get("acceptance", ""),
             risk=body.get("risk") or None,
             tier=body.get("tier") or None,
+            check=body.get("check", ""),
         )
         return JSONResponse({"task_id": dt.id, "state": dt.state.value})
 
@@ -127,7 +129,7 @@ def create_app(
     ])
 
 
-def serve(config: GearboxConfig, host: str = "127.0.0.1", port: int = 8765, simulated: bool = False) -> None:
+def serve(config: GearboxConfig, host: str = "127.0.0.1", port: int = 8790, simulated: bool = False) -> None:
     import uvicorn
 
     app = create_app(config, simulated=simulated)

@@ -1,0 +1,164 @@
+"""Executable acceptance checks: run the host's test code against a worker's output.
+
+The worker's code (fenced blocks, or the whole reply) is loaded first, then the
+check runs in the same namespace: plain asserts, or `test_*` functions that are
+called one by one. `RESULT` holds the raw reply for non-code checks, e.g.
+`assert json.loads(RESULT)["ok"]`.
+
+This executes model-written code. Isolation is best effort, NOT a security
+boundary: a fresh temp dir, an empty environment (no API keys), Python isolated
+mode, stdin closed, CPU/file-size limits, a wall-clock timeout, and no network
+where the OS allows it (sandbox-exec on macOS, `unshare -rn` on Linux).
+Run Gearbox in a VM or container if that is not enough.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import functools
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+PASS_MARKER = "GEARBOX_CHECK_PASSED"
+MAX_OUTPUT_CHARS = 2000
+_FENCE_RE = re.compile(r"```[ \t]*([\w+-]*)[^\n]*\n(.*?)```", re.DOTALL)
+_MACOS_NO_NETWORK = "(version 1)(allow default)(deny network*)"
+
+RUNNER = f'''
+import ast, resource, sys, traceback
+
+def _limit(kind, value):
+    try:
+        resource.setrlimit(kind, (value, value))
+    except (ValueError, OSError):
+        pass
+
+_limit(resource.RLIMIT_CPU, int(sys.argv[1]))
+_limit(resource.RLIMIT_FSIZE, 10 * 2**20)
+
+ns = {{"__name__": "__gearbox_check__", "RESULT": open("result.txt", encoding="utf-8").read()}}
+def explain(exc):
+    """For a bare failed `assert a == b` / `assert f(x)`, re-evaluate the parts so the
+    message says what the answer actually returned (plain asserts don't)."""
+    frame = next((f for f in reversed(traceback.extract_tb(exc.__traceback__)) if f.filename == "check.py"), None)
+    if str(exc) or frame is None or not frame.line:
+        return None
+    try:
+        test = ast.parse(frame.line.strip()).body[0].test
+        value = lambda node: eval(compile(ast.Expression(node), "check.py", "eval"), ns)
+        if isinstance(test, ast.Compare) and len(test.ops) == 1:
+            right = test.comparators[0]
+            expected = repr(value(right)) if isinstance(right, ast.Constant) else f"{{ast.unparse(right)}} = {{value(right)!r}}"
+            return f"{{ast.unparse(test.left)}} returned {{value(test.left)!r}}, expected {{expected}}"
+        if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+            return f"{{ast.unparse(test.operand)}} returned {{value(test.operand)!r}}, expected a falsy value"
+        return f"{{ast.unparse(test)}} returned {{value(test)!r}}, expected a truthy value"
+    except BaseException:
+        return None
+
+load_error = None
+try:
+    exec(compile(open("solution.py", encoding="utf-8").read(), "solution.py", "exec"), ns)
+except BaseException:
+    load_error = traceback.format_exc(limit=2)
+
+try:
+    exec(compile(open("check.py", encoding="utf-8").read(), "check.py", "exec"), ns)
+    tests = [(name, fn) for name, fn in list(ns.items()) if name.startswith("test_") and callable(fn)]
+    for name, fn in tests:
+        fn()
+except BaseException as exc:
+    if load_error:
+        sys.stderr.write("The worker's code did not load:\\n" + load_error + "\\n")
+    traceback.print_exc(limit=-3)
+    detail = explain(exc) if isinstance(exc, AssertionError) else None
+    if detail:
+        sys.stderr.write("Failed: " + detail + "\\n")
+    sys.exit(1)
+print("{PASS_MARKER} tests=%d" % len(tests))
+'''
+
+
+@dataclass(frozen=True)
+class CheckResult:
+    passed: bool
+    output: str  # tail of the check's stdout/stderr, for the next tier and the host
+    duration_s: float
+    isolation: str
+
+    def as_dict(self) -> dict:
+        return {
+            "passed": self.passed,
+            "output": self.output,
+            "duration_s": round(self.duration_s, 3),
+            "isolation": self.isolation,
+        }
+
+
+def extract_code(text: str) -> str:
+    """Python from fenced blocks if there are any (other languages skipped), else the whole reply."""
+    blocks = _FENCE_RE.findall(text)
+    if not blocks:
+        return text.strip()
+    python = [body for lang, body in blocks if lang.lower() in ("", "py", "python", "python3")]
+    return "\n\n".join(b.strip() for b in python)
+
+
+@functools.lru_cache(maxsize=1)
+def isolation_mode() -> str:
+    """Best network isolation available on this machine, probed once."""
+    if sys.platform == "darwin" and shutil.which("sandbox-exec"):
+        return "sandbox-exec (no network)"
+    if sys.platform.startswith("linux") and shutil.which("unshare"):
+        probe = subprocess.run(["unshare", "-rn", "true"], capture_output=True)
+        if probe.returncode == 0:
+            return "unshare (no network)"
+    return "subprocess (network allowed)"
+
+
+def _command(workdir: Path, cpu_s: int) -> list[str]:
+    python = [sys.executable, "-I", str(workdir / "runner.py"), str(cpu_s)]
+    mode = isolation_mode()
+    if mode.startswith("sandbox-exec"):
+        return ["sandbox-exec", "-p", _MACOS_NO_NETWORK, *python]
+    if mode.startswith("unshare"):
+        return ["unshare", "-rn", *python]
+    return python
+
+
+def _tail(text: str) -> str:
+    text = text.strip()
+    return text if len(text) <= MAX_OUTPUT_CHARS else "…" + text[-MAX_OUTPUT_CHARS:]
+
+
+async def run_check(result_text: str, check_code: str, timeout_s: float = 20.0) -> CheckResult:
+    start = time.perf_counter()
+    with tempfile.TemporaryDirectory(prefix="gearbox-check-") as tmp:
+        workdir = Path(tmp)
+        (workdir / "runner.py").write_text(RUNNER, encoding="utf-8")
+        (workdir / "result.txt").write_text(result_text, encoding="utf-8")
+        (workdir / "solution.py").write_text(extract_code(result_text), encoding="utf-8")
+        (workdir / "check.py").write_text(check_code, encoding="utf-8")
+        proc = await asyncio.create_subprocess_exec(
+            *_command(workdir, cpu_s=max(1, int(timeout_s))),
+            cwd=workdir,
+            env={"PATH": "/usr/bin:/bin", "HOME": tmp, "PYTHONDONTWRITEBYTECODE": "1"},
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout_s)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return CheckResult(False, f"check timed out after {timeout_s}s", time.perf_counter() - start, isolation_mode())
+    text = out.decode("utf-8", errors="replace")
+    passed = proc.returncode == 0 and PASS_MARKER in text
+    return CheckResult(passed, _tail(text), time.perf_counter() - start, isolation_mode())

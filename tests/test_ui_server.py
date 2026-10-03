@@ -65,3 +65,20 @@ def test_race_endpoint_runs_to_completion():
 def test_simulated_mode_needs_no_backend():
     with TestClient(create_app(make_config(), simulated=True)) as client:
         assert client.get("/api/config").json()["simulated"] is True
+
+
+def test_delegate_with_check_over_http():
+    good = "```python\ndef double(x):\n    return 2 * x\n```"
+    app = create_app(make_config(code_checks=True), provider=FakeProvider({"t0": good}))
+    with TestClient(app) as client:
+        assert client.get("/api/config").json()["code_checks"] is True
+        client.post("/api/delegate", json={"task": "Write double", "tier": "t0", "check": "assert double(3) == 6"})
+        tasks = wait_for(client, "/api/tasks", lambda d: d["tasks"][0]["state"] in ("done", "failed"), timeout=15)
+        assert tasks["tasks"][0]["verified"] is True
+        assert client.get("/api/ledger").json()["false_done_rate"] == {"t0": 0.0}
+
+
+def test_check_rejected_when_disabled():
+    with make_client() as client:
+        res = client.post("/api/delegate", json={"task": "x", "check": "assert True"})
+        assert res.status_code == 400 and "code_checks" in res.json()["error"]

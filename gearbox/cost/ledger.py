@@ -32,6 +32,7 @@ class CallRecord:
     task_id: str | None = None
     ok: bool = True
     brief_tokens: int = 0  # host-written tokens that produced this call (delegate only)
+    check_passed: bool | None = None  # None = no executable check ran on this call
 
 
 class Ledger:
@@ -52,6 +53,7 @@ class Ledger:
         task_id: str | None = None,
         ok: bool = True,
         brief_tokens: int = 0,
+        check_passed: bool | None = None,
     ) -> CallRecord:
         rec = CallRecord(
             timestamp=time.time(),
@@ -65,6 +67,7 @@ class Ledger:
             task_id=task_id,
             ok=ok,
             brief_tokens=brief_tokens,
+            check_passed=check_passed,
         )
         self._records.append(rec)
         if self._path:
@@ -81,6 +84,9 @@ class Ledger:
             t["output_tokens"] += r.output_tokens
             t["cached_tokens"] += r.cached_tokens
             t["cost_usd"] += r.cost_usd
+            if r.check_passed is not None:
+                t["checked"] += 1
+                t["check_failures"] += not r.check_passed
 
         tasks: dict[str, list[CallRecord]] = defaultdict(list)
         for r in self._records:
@@ -107,5 +113,9 @@ class Ledger:
             "delegated_tasks": len(tasks),
             "delegated_tasks_succeeded": succeeded,
             "estimated_host_savings_usd": round(savings, 6),
+            # Share of checked answers that claimed success but failed their check.
+            "false_done_rate": {
+                name: round(t["check_failures"] / t["checked"], 3) for name, t in by_tier.items() if t.get("checked")
+            },
             "savings_assumptions": SAVINGS_ASSUMPTIONS,
         }

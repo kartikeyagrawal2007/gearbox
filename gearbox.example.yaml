@@ -40,4 +40,11 @@ difficulty: heuristic       # heuristic (free) | judge (a cheap tier rates diffi
 judge_tier: 0
 max_concurrent: 4           # delegated subtasks running at once
 task_timeout_s: 600         # per attempt
-max_escalations: 1          # move up a tier on UNSURE / error / timeout
+max_escalations: 1          # move up a tier on UNSURE / error / timeout / failed check
+
+# Executable acceptance checks: delegate(..., check="assert f(2) == 4") runs the host's test code
+# against the worker's answer. This EXECUTES MODEL-WRITTEN CODE. Isolation is best effort (temp dir,
+# empty env, timeouts, CPU/file limits, no network via sandbox-exec or unshare), not a security
+# boundary. Leave it off unless you are fine running that code here, or run Gearbox in a VM.
+code_checks: false
+check_timeout_s: 20
