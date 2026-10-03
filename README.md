@@ -83,6 +83,16 @@ python bench/false_done.py --config gearbox.yaml --tiers small large
 
 First result: qwen2.5-coder:1.5b passed 5/8 and claimed success on all 8. That's a 37.5% false-done rate, and not one of its wrong answers said "unsure".
 
+For real statistics, use **HumanEval+**: the 164 HumanEval problems with EvalPlus's extended tests (~760 inputs each), downloaded on first use. Its checks are hidden from the worker, as in the official evaluation:
+
+```bash
+python bench/false_done.py --config gearbox.yaml --tasks humaneval+ --json runs/humaneval.json
+```
+
+Use `--tasks humaneval+mini` for a faster run with EvalPlus's reduced tests, or `--limit 20` for a trial.
+
+**Harness validation:** qwen2.5-coder:1.5b (Ollama 4-bit, temperature 0) scored 65.2% (107/164). The Qwen2.5-Coder report gives 66.5% for this model. All 164 reference solutions pass their own generated checks (a regression test). The 57 failed answers were all claimed as done, and none said "unsure".
+
 ## CLI
 
 ```bash

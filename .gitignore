@@ -10,3 +10,4 @@ runs/
 *.jsonl
 .claude/
 .DS_Store
+bench/data/

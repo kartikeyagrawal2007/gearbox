@@ -6,21 +6,93 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bench"))
 from false_done import failure_kind  # noqa: E402
 
-CHECK = "assert slugify('Héllo') == 'hello'"
+TARGETS = ("slugify",)
 
 
 def test_missing_requested_function_is_format():
-    assert failure_kind("Traceback ...\nNameError: name 'slugify' is not defined", CHECK) == "format"
+    assert failure_kind("Traceback ...\nNameError: name 'slugify' is not defined", TARGETS) == "format"
     out = "The worker's code did not compile:\nSyntaxError\nNameError: name 'slugify' is not defined"
-    assert failure_kind(out, CHECK) == "format"
+    assert failure_kind(out, TARGETS) == "format"
 
 
 def test_wrong_value_is_logic_even_if_loading_crashed():
     # granite4.2:8b and qwen3.5:2b on the A5000 were mislabelled format by the old rule
     out = ("The worker's code raised an error while loading (definitions before the error are still used):\n"
            "EOFError\nTraceback ...\nFailed: slugify('Héllo') returned 'helloworld', expected 'hello'")
-    assert failure_kind(out, CHECK) == "logic"
+    assert failure_kind(out, TARGETS) == "logic"
 
 
 def test_undefined_helper_is_logic():
-    assert failure_kind("Traceback ...\nNameError: name 'helper' is not defined", CHECK) == "logic"
+    assert failure_kind("Traceback ...\nNameError: name 'helper' is not defined", TARGETS) == "logic"
+
+
+# --- HumanEval+ checks (bench/tasksets.py) ---
+
+import asyncio  # noqa: E402
+import gzip  # noqa: E402
+import json  # noqa: E402
+
+import pytest  # noqa: E402
+
+from gearbox.verify.checks import run_check  # noqa: E402
+from tasksets import SMOKE, humaneval_check, load_tasks  # noqa: E402
+
+PROBLEM = {  # shaped like an EvalPlus record
+    "task_id": "Demo/0", "entry_point": "truncate_number", "atol": 0,
+    "prompt": "def truncate_number(number: float) -> float:\n    \"\"\"Return the decimal part.\"\"\"\n",
+    "canonical_solution": "    return number - int(number)\n",
+    "base_input": [[3.5], [1.25]], "plus_input": [[123.456]],
+}
+
+
+def run(answer: str, problem=PROBLEM):
+    return asyncio.run(run_check(answer, humaneval_check(problem), timeout_s=30))
+
+
+def test_humaneval_check_accepts_a_correct_answer():
+    assert run("def truncate_number(number):\n    return number % 1.0").passed  # floats within tolerance
+
+
+def test_humaneval_check_reports_the_failing_input():
+    r = run("def truncate_number(number):\n    return 0.5")
+    assert not r.passed
+    assert "truncate_number(1.25) returned 0.5, expected 0.25 (input 2 of 3)" in r.output
+
+
+def test_humaneval_check_reports_exceptions_with_the_input():
+    r = run("def truncate_number(number):\n    raise ValueError('nope')")
+    assert "truncate_number(3.5) raised ValueError: nope" in r.output
+
+
+def test_humaneval_missing_function_is_a_format_failure():
+    r = run("def something_else():\n    pass")
+    assert failure_kind(r.output, ("truncate_number",)) == "format"
+
+
+def test_humaneval_inputs_are_copied():
+    problem = dict(PROBLEM, entry_point="first", prompt="def first(xs):\n", canonical_solution="    return xs[0]\n",
+                   base_input=[[[1, 2]], [[3, 4]]], plus_input=[])
+    assert run("def first(xs):\n    return xs.pop(0)", problem).passed  # mutating its input can't break the next call
+
+
+def test_find_zero_accepts_any_root():
+    problem = {"task_id": "Demo/32", "entry_point": "find_zero", "atol": 1e-6,
+               "prompt": "def poly(xs, x):\n    return sum(c * x ** i for i, c in enumerate(xs))\n\ndef find_zero(xs):\n",
+               "canonical_solution": "    return 1.0\n",  # root of x^2 - 1 (the other root is -1)
+               "base_input": [[[-1, 0, 1]]], "plus_input": []}
+    assert run("def find_zero(xs):\n    return -1.0", problem).passed
+
+
+@pytest.mark.skipif(not (Path(__file__).resolve().parent.parent / "bench/data/HumanEvalPlus-Mini.jsonl.gz").exists(),
+                    reason="EvalPlus data not downloaded")
+def test_every_reference_solution_passes_its_own_mini_check():
+    path = Path(__file__).resolve().parent.parent / "bench/data/HumanEvalPlus-Mini.jsonl.gz"
+    problems = [json.loads(line) for line in gzip.open(path, "rt")]
+
+    async def all_checks():
+        return await asyncio.gather(*(run_check("```python\n" + p["prompt"] + p["canonical_solution"] + "\n```",
+                                                humaneval_check(p), timeout_s=60) for p in problems))
+
+    results = asyncio.run(all_checks())
+    assert [p["task_id"] for p, r in zip(problems, results) if not r.passed] == []
+    assert len(load_tasks("humaneval+mini")) == 164 and len(load_tasks("smoke")) == len(SMOKE) == 8

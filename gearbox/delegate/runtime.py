@@ -123,10 +123,13 @@ class DelegationRuntime:
         leverage: int | None = None,
         timeout_s: float | None = None,
         check: str = "",
+        show_check: bool = True,
     ) -> DelegatedTask:
         """Schedule a subtask and return immediately. Must be called inside a running event loop.
 
         `check`: Python test code run against the worker's answer (see gearbox/verify/checks.py).
+        `show_check`: include the check in the worker's brief as its spec (default). Turn it off
+        for hidden tests, e.g. benchmarks whose checks hold reference solutions.
         """
         if not task.strip():
             raise ValueError("task must not be empty")
@@ -138,11 +141,12 @@ class DelegationRuntime:
         if risk is not None and risk not in RISK_LEVELS:
             raise ValueError(f"risk must be one of {RISK_LEVELS}, got {risk!r}")
         forced = self.config.tier_index(tier) if tier is not None else None
-        messages = build_messages(task, context, acceptance, check)
+        shown = check if show_check else ""
+        messages = build_messages(task, context, acceptance, shown)
         dt = DelegatedTask(
             id=uuid.uuid4().hex[:8],
             task=task,
-            brief_tokens=estimate_tokens(task + context + acceptance + check),
+            brief_tokens=estimate_tokens(task + context + acceptance + shown),
             created_at=time.time(),
             check=check.strip(),
         )

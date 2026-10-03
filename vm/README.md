@@ -85,6 +85,16 @@ Run it with the hatch on (default) and with `--hatch off`:
 cd ~/gearbox && mkdir -p runs && .venv/bin/python bench/false_done.py --config vm/models.vm.yaml --json runs/false_done_all.json
 ```
 
+## 5. HumanEval+ across all models
+
+These are the real numbers for the paper: 164 problems with hidden tests, per model, with the UNSURE hatch on and off. Expect roughly 1–3 hours for both runs. Results appear in the dashboard as each model finishes:
+
+```text
+cd ~/gearbox && .venv/bin/python bench/false_done.py --config vm/models.vm.yaml --tasks humaneval+ --json runs/humaneval_hatch_on.json && .venv/bin/python bench/false_done.py --config vm/models.vm.yaml --tasks humaneval+ --hatch off --json runs/humaneval_hatch_off.json
+```
+
+The test data (under 1 MB) downloads on first use. If the network blocks it, download `HumanEvalPlus.jsonl.gz` from <https://github.com/evalplus/humanevalplus_release/releases/tag/v0.1.10> in a browser and copy it to `~/gearbox/bench/data/`.
+
 ## Updating later
 
 ```text

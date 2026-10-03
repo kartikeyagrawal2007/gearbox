@@ -193,7 +193,7 @@
   </section>
 
   <section class="card wide" aria-labelledby="h-bench">
-    <h2 id="h-bench">Benchmark results <span class="hint">latest result per model, from the runs folder</span></h2>
+    <h2 id="h-bench">Benchmark results <span class="hint">latest result per model and task set, from the runs folder</span></h2>
     <div id="bench"><div class="empty">Loading…</div></div>
   </section>
 </main>
@@ -427,14 +427,14 @@ async function pollBench() {
   const pct = (x) => x == null ? '–' : Math.round(x * 100) + '%';
   box.replaceChildren(
     h('table', { 'aria-label': 'Benchmark results by model' },
-      h('thead', {}, h('tr', {}, h('th', {}, 'Model'), h('th', {}, 'UNSURE hatch'), h('th', {}, 'Passed'),
+      h('thead', {}, h('tr', {}, h('th', {}, 'Tasks'), h('th', {}, 'Model'), h('th', {}, 'UNSURE hatch'), h('th', {}, 'Passed'),
         h('th', { class: 'n' }, 'Unsure'),
         h('th', { class: 'n', title: 'Of the answers that claimed success and contained the requested code, the share whose code was wrong' }, 'False done'),
         h('th', { class: 'n', title: 'Answers where the requested function was never defined (output format, not wrong code)' }, 'Format'),
         h('th', { class: 'n', title: 'Answers whose code fences were unbalanced and had to be repaired before checking' }, 'Fences fixed'),
         h('th', {}, 'From'))),
       h('tbody', {}, data.combined.map(r => h('tr', {},
-        h('td', {}, h('b', {}, r.tier)), h('td', {}, r.hatch),
+        h('td', { class: 'muted' }, r.task_set), h('td', {}, h('b', {}, r.tier)), h('td', {}, r.hatch),
         h('td', {}, h('span', { class: 'rate', role: 'img', 'aria-label': `${r.passed} of ${r.tasks} passed` }, h('i', { style: `width:${(r.passed / r.tasks) * 100}%` })), `${r.passed}/${r.tasks}`),
         h('td', { class: 'n' }, `${r.unsure}/${r.tasks}`),
         h('td', { class: 'n' + (r.logic_false_done_rate >= 0.3 ? ' bad' : '') }, pct(r.logic_false_done_rate)),

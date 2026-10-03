@@ -180,3 +180,16 @@ def test_worker_sees_the_check_as_its_spec():
     provider = FakeProvider({"t0": lambda messages: seen.append(messages[-1]["content"]) or GOOD})
     run_task(provider)
     assert "must pass this check" in seen[0] and "assert add(2, 3) == 5" in seen[0]
+
+
+def test_hidden_check_is_run_but_not_shown():
+    seen = []
+    provider = FakeProvider({"t0": lambda messages: seen.append(messages[-1]["content"]) or GOOD})
+
+    async def scenario():
+        rt = DelegationRuntime(make_config(code_checks=True), provider=provider)
+        return await rt.run("Write add(a, b)", tier="t0", check=CHECK, show_check=False)
+
+    dt = asyncio.run(scenario())
+    assert "assert add" not in seen[0]  # the worker never saw the tests
+    assert dt.view()["verified"] is True  # but they still ran
