@@ -69,7 +69,16 @@ def test_result_text_available_for_non_code_checks():
 def test_unloadable_answer_is_reported():
     failed = check("Sorry, I can't do that.", CHECK)
     assert not failed.passed
-    assert "did not load" in failed.output
+    assert "did not compile" in failed.output
+
+
+def test_crash_after_definitions_keeps_the_definitions():
+    # Seen on the A5000: a demo call after the function crashed the load, but the function
+    # was defined and returned a wrong value, which is a logic failure, not a missing function.
+    answer = "```python\ndef add(a, b):\n    return a - b\n\nprint(add(int(input()), 2))\n```"
+    failed = check(answer, CHECK)
+    assert "raised an error while loading" in failed.output
+    assert failed.output.splitlines()[-1] == "Failed: add(2, 3) returned -1, expected 5"
 
 
 def test_timeout_kills_runaway_code():

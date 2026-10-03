@@ -66,9 +66,16 @@ def explain(exc):
 
 load_error = None
 try:
-    exec(compile(open("solution.py", encoding="utf-8").read(), "solution.py", "exec"), ns)
-except BaseException:
-    load_error = traceback.format_exc(limit=2)
+    solution = compile(open("solution.py", encoding="utf-8").read(), "solution.py", "exec")
+except SyntaxError:
+    load_error = "The worker's code did not compile:\\n" + traceback.format_exc(limit=0)
+else:
+    try:
+        exec(solution, ns)
+    except BaseException:
+        # e.g. a demo call after the definitions; what was defined before it still counts
+        load_error = ("The worker's code raised an error while loading (definitions before the "
+                      "error are still used):\\n" + traceback.format_exc(limit=2))
 
 try:
     exec(compile(open("check.py", encoding="utf-8").read(), "check.py", "exec"), ns)
@@ -77,7 +84,7 @@ try:
         fn()
 except BaseException as exc:
     if load_error:
-        sys.stderr.write("The worker's code did not load:\\n" + load_error + "\\n")
+        sys.stderr.write(load_error + "\\n")
     traceback.print_exc(limit=-3)
     detail = explain(exc) if isinstance(exc, AssertionError) else None
     if detail:

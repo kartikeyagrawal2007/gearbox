@@ -73,7 +73,11 @@ def load_runs(runs_dir: Path, tier_order: list[str]) -> dict:
                 row = {
                     "tier": r["tier"], "hatch": r.get("hatch", "on"), "tasks": r["tasks"], "passed": r["passed"],
                     "unsure": r.get("unsure", sum(x.get("outcome") == "unsure" for x in r.get("rows", []))),
-                    "false_done_rate": r.get("false_done_rate"), "file": path.name,
+                    "false_done_rate": r.get("false_done_rate"),
+                    # Newer results separate format slips from wrong code; prefer the logic-only rate.
+                    "logic_false_done_rate": r.get("logic_false_done_rate", r.get("false_done_rate")),
+                    "format_failures": r.get("format_failures"), "fences_repaired": r.get("fences_repaired"),
+                    "file": path.name,
                 }
                 entry["results"].append(row)
                 latest[(row["tier"], row["hatch"])] = row

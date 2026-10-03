@@ -53,12 +53,11 @@ _UNDEFINED = re.compile(r"name '(\w+)' is not defined")
 
 
 def failure_kind(check_output: str, check_code: str) -> str:
-    """'format' when the answer never yielded the requested code (it did not load, or the
-    function the check calls is missing); 'logic' when the code ran and was wrong.
+    """'format' when the function the check calls was never defined (the answer didn't
+    compile, or held no such function); 'logic' when it was defined but wrong, even if the
+    answer also crashed while loading (e.g. a demo call after the definition).
     Format failures say more about output style or our code extraction than about whether
     the model knows the answer, so they are reported apart from false dones."""
-    if "did not load" in check_output:
-        return "format"
     missing = _UNDEFINED.search(check_output.strip().splitlines()[-1] if check_output.strip() else "")
     return "format" if missing and re.search(rf"\b{missing.group(1)}\s*\(", check_code) else "logic"
 

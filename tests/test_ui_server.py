@@ -170,6 +170,8 @@ def test_runs_panel_merges_latest_result_per_model(tmp_path):
         data = client.get("/api/runs").json()
     combined = [(r["tier"], r["hatch"], r["passed"], r["unsure"]) for r in data["combined"]]
     assert combined == [("t0", "off", 1, 1), ("t1", "on", 6, 0)]  # tier order; newer t1 wins
+    # old result files have no logic-only rate: fall back to the plain rate
+    assert data["combined"][1]["logic_false_done_rate"] == 0.25
     errors = {f["file"]: f.get("error") for f in data["files"]}
     assert errors["broken.json"] and errors["a.json"] is None and errors["notes.json"] is None
 
