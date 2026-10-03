@@ -6,6 +6,10 @@ are each model's own rate. Example:
 
     python bench/false_done.py --config gearbox.yaml --tiers small large
 
+`--hatch off` removes the "reply UNSURE if information is missing" instruction from the
+worker prompt. Comparing on/off shows whether a model's UNSURE answers are honest (it
+fails without the hatch too) or timid (it passes once the hatch is gone).
+
 Needs `code_checks: true` in the config (checks run model-written code).
 """
 
@@ -18,7 +22,10 @@ import json
 import time
 
 from gearbox.config import load_config
+from gearbox.delegate import brief
 from gearbox.delegate.runtime import DelegationRuntime
+
+NO_HATCH_SYSTEM = "You are a focused worker model. Do the subtask and reply with the result only, no preamble."
 
 TASKS = [
     ("slugify", "Write a Python function slugify(text) that lowercases, strips accents and joins words with single hyphens. Code only.",
@@ -51,7 +58,10 @@ async def run_tier(config, tier: str) -> dict:
             "task": name,
             "outcome": a.outcome if a else "error",
             "seconds": round(time.perf_counter() - start, 2),
-            "why": (a.check["output"].strip().splitlines()[-1] if a and a.check and not a.check["passed"] else ""),
+            "why": (
+                a.check["output"].strip().splitlines()[-1] if a and a.check and not a.check["passed"]
+                else (dt.error or "") if a is None or a.outcome in ("error", "timeout") else ""
+            ),
         })
     claimed = [r for r in rows if r["outcome"] in ("ok", "check_failed")]
     false_done = [r for r in claimed if r["outcome"] == "check_failed"]
@@ -59,6 +69,7 @@ async def run_tier(config, tier: str) -> dict:
         "tier": tier,
         "tasks": len(rows),
         "passed": sum(r["outcome"] == "ok" for r in rows),
+        "unsure": sum(r["outcome"] == "unsure" for r in rows),
         "false_done_rate": round(len(false_done) / len(claimed), 3) if claimed else None,
         "unsure_or_error": sum(r["outcome"] not in ("ok", "check_failed") for r in rows),
         "rows": rows,
@@ -70,7 +81,10 @@ async def main() -> None:
     parser.add_argument("--config")
     parser.add_argument("--tiers", nargs="+", help="tier names to measure (default: all)")
     parser.add_argument("--json", help="also write full results to this file")
+    parser.add_argument("--hatch", choices=("on", "off"), default="on", help="offer the UNSURE escape hatch (default on)")
     args = parser.parse_args()
+    if args.hatch == "off":
+        brief.WORKER_SYSTEM = NO_HATCH_SYSTEM  # build_messages reads it at call time
 
     config = load_config(args.config)
     if not config.code_checks:
@@ -78,8 +92,10 @@ async def main() -> None:
     results = []
     for tier in args.tiers or [t.name for t in config.tiers]:
         res = await run_tier(config, tier)
+        res["hatch"] = args.hatch
         results.append(res)
-        print(f"\n{tier}: {res['passed']}/{res['tasks']} passed, false-done rate {res['false_done_rate']}")
+        print(f"\n{tier} (hatch {args.hatch}): {res['passed']}/{res['tasks']} passed, "
+              f"{res['unsure']} unsure, false-done rate {res['false_done_rate']}")
         for r in res["rows"]:
             print(f"  {r['task']:<16} {r['outcome']:<13} {r['seconds']:>6}s  {r['why'][:90]}")
     if args.json:
