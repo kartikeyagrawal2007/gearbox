@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -12,6 +13,11 @@ from typing import Any, Protocol
 from gearbox.config import Tier
 
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+# LiteLLM downloads a model price list from raw.githubusercontent.com on import. Gearbox has
+# its own pricing, and on networks that block or stall that host (seen on the lab VM) every
+# start waits through retries. Use LiteLLM's bundled copy unless the user chose otherwise.
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 
 @dataclass(frozen=True)

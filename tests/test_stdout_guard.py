@@ -28,3 +28,10 @@ def test_premise_litellm_logs_to_stdout_unprotected():
     # If this starts failing, LiteLLM stopped logging to stdout and protect_stdout()
     # may no longer be needed.
     assert "PROBE-INFO" in run_probe("unprotected")
+
+
+def test_litellm_skips_remote_price_list_download():
+    code = "import os, gearbox.providers; print(os.environ.get('LITELLM_LOCAL_MODEL_COST_MAP'))"
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60,
+                          env={k: v for k, v in __import__("os").environ.items() if k != "LITELLM_LOCAL_MODEL_COST_MAP"})
+    assert done.stdout.strip() == "True"

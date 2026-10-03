@@ -16,9 +16,10 @@ import json
 import time
 import urllib.request
 
-import litellm
-
 from gearbox.config import load_config
+from gearbox.providers import LiteLLMProvider  # noqa: F401  sets LiteLLM env defaults before import
+
+import litellm  # noqa: E402
 
 PROMPT = "Write a Python function add(a, b) that returns their sum. Code only."
 
