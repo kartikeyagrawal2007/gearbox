@@ -52,12 +52,15 @@ async def probe(tier) -> dict:
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", default="vm/models.vm.yaml")
+    parser.add_argument("--tiers", nargs="+", help="only check these tier names")
     args = parser.parse_args()
     litellm.suppress_debug_info = True
     config = load_config(args.config)
     have = pulled_models()
     print("=================== PASTE EVERYTHING BELOW THIS LINE ===================")
     for tier in config.tiers:
+        if args.tiers and tier.name not in args.tiers:
+            continue
         tag = tier.model.split("/", 1)[1]
         if tag not in have and f"{tag}:latest" not in have:
             print(f"{tier.name:<20} not pulled")

@@ -1,9 +1,10 @@
 # Every benchmark model as a tier, for bench/false_done.py and vm/verify_models.py.
 # (Not a routing ladder: it mixes vendors. vm/gearbox.vm.yaml is the routing ladder.)
 #
-# Qwen3.5 can "think" before answering. `reasoning_effort: none` makes LiteLLM send
-# Ollama `think: false`, so it answers directly like the other models. Only set it on
-# models that support thinking; others may reject the parameter.
+# Qwen3.5 and Granite 4.2 "think" before answering by default. `reasoning_effort: none`
+# makes LiteLLM send Ollama `think: false`, so they answer directly like the others.
+# vm/verify_models.py confirmed on the A5000 (2026-10-03): Granite thought (~125 tokens
+# of hidden reasoning) until this was set. Only set it on models that support thinking.
 tiers:
   # Size ladder: one current family, five sizes.
   - {name: qwen3.5-0.8b, model: ollama_chat/qwen3.5:0.8b, params: {reasoning_effort: none}}
@@ -12,8 +13,8 @@ tiers:
   - {name: qwen3.5-9b,   model: ollama_chat/qwen3.5:9b,   params: {reasoning_effort: none}}
   - {name: qwen3.5-27b,  model: ollama_chat/qwen3.5:27b,  params: {reasoning_effort: none}}
   # Other vendors at matched sizes (~3-4B and ~8-12B).
-  - {name: granite4.2-3b,  model: ollama_chat/granite4.2:3b}
-  - {name: granite4.2-8b,  model: ollama_chat/granite4.2:8b}
+  - {name: granite4.2-3b,  model: ollama_chat/granite4.2:3b, params: {reasoning_effort: none}}
+  - {name: granite4.2-8b,  model: ollama_chat/granite4.2:8b, params: {reasoning_effort: none}}
   - {name: ministral3-3b,  model: ollama_chat/ministral-3:3b}
   - {name: ministral3-8b,  model: ollama_chat/ministral-3:8b}
   - {name: gemma3-4b,      model: ollama_chat/gemma3:4b}
