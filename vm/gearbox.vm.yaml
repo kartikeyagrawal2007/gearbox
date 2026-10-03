@@ -1,0 +1,29 @@
+# Gearbox config for the A5000 VM: one model family at six sizes, all through Ollama.
+# Prices are 0 on purpose: on this machine cost is measured as GPU time and energy,
+# not API spend. Set API-equivalent prices here if you want dollar estimates.
+tiers:
+  - name: q0.5b
+    model: ollama_chat/qwen2.5-coder:0.5b
+  - name: q1.5b
+    model: ollama_chat/qwen2.5-coder:1.5b
+  - name: q3b
+    model: ollama_chat/qwen2.5-coder:3b
+  - name: q7b
+    model: ollama_chat/qwen2.5-coder:7b
+  - name: q14b
+    model: ollama_chat/qwen2.5-coder:14b
+  - name: q32b
+    model: ollama_chat/qwen2.5-coder:32b
+    context_window: 8192
+
+leverage: 1
+risk_scaled_leverage: true
+difficulty: heuristic
+max_concurrent: 4
+task_timeout_s: 600
+max_escalations: 1
+
+# Checks run model-written code. On this VM they run inside WSL with no network
+# (unshare -rn) when the kernel allows it; vm/setup_wsl.sh reports which isolation you got.
+code_checks: true
+check_timeout_s: 20
