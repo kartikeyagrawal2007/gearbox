@@ -22,6 +22,20 @@ def test_extract_code_prefers_python_fences():
     assert extract_code("x = 1") == "x = 1"
 
 
+def test_extract_code_handles_unbalanced_fences():
+    # ministral-3:8b on the A5000: code, then a closing fence with no opening one
+    assert extract_code("def f():\n    return 1\n```") == "def f():\n    return 1"
+    assert extract_code("```python\ndef f():\n    return 1") == "def f():\n    return 1"
+    assert extract_code("~~~\nx = 1\n") == "x = 1"
+    # a fence inside a string literal is not a fence line, so it stays
+    assert extract_code('s = "```"') == 's = "```"'
+    assert check("def add(a, b):\n    return a + b\n```", CHECK).passed
+    from gearbox.verify import has_unbalanced_fences
+    assert has_unbalanced_fences("def f(): pass\n```")
+    assert not has_unbalanced_fences("```python\ndef f(): pass\n```")
+    assert not has_unbalanced_fences("def f(): pass")
+
+
 def test_passing_and_failing_checks():
     assert check(GOOD, CHECK).passed
     failed = check(BUGGY, CHECK)

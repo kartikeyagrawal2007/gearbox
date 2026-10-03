@@ -25,6 +25,7 @@ import time
 from gearbox.config import load_config
 from gearbox.delegate import brief
 from gearbox.delegate.runtime import DelegationRuntime
+from gearbox.verify import has_unbalanced_fences
 
 NO_HATCH_SYSTEM = "You are a focused worker model. Do the subtask and reply with the result only, no preamble."
 
@@ -84,6 +85,7 @@ async def run_tier(config, tier: str) -> dict:
                 check_output.strip().splitlines()[-1] if a and a.check and not a.check["passed"]
                 else (dt.error or "") if a is None or a.outcome in ("error", "timeout") else ""
             ),
+            "fences_repaired": has_unbalanced_fences(dt.result or ""),
             "answer": (dt.result or "")[:6000],
             "check_output": check_output,
         })
@@ -97,6 +99,7 @@ async def run_tier(config, tier: str) -> dict:
         "passed": sum(r["outcome"] == "ok" for r in rows),
         "unsure": sum(r["outcome"] == "unsure" for r in rows),
         "format_failures": sum(r["kind"] == "format" for r in rows),
+        "fences_repaired": sum(r["fences_repaired"] for r in rows),
         "false_done_rate": round(len(false_done) / len(claimed), 3) if claimed else None,
         "logic_false_done_rate": round(len(logic_false_done) / len(scorable), 3) if scorable else None,
         "unsure_or_error": sum(r["outcome"] not in ("ok", "check_failed") for r in rows),
@@ -123,7 +126,8 @@ async def main() -> None:
         res["hatch"] = args.hatch
         results.append(res)
         print(f"\n{tier} (hatch {args.hatch}): {res['passed']}/{res['tasks']} passed, {res['unsure']} unsure, "
-              f"{res['format_failures']} format failures, false-done rate {res['false_done_rate']} "
+              f"{res['format_failures']} format failures, {res['fences_repaired']} fences repaired, "
+              f"false-done rate {res['false_done_rate']} "
               f"(logic only: {res['logic_false_done_rate']})")
         for r in res["rows"]:
             kind = f"[{r['kind']}]" if r["kind"] else ""

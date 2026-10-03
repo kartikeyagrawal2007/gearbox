@@ -29,6 +29,7 @@ from pathlib import Path
 PASS_MARKER = "GEARBOX_CHECK_PASSED"
 MAX_OUTPUT_CHARS = 2000
 _FENCE_RE = re.compile(r"```[ \t]*([\w+-]*)[^\n]*\n(.*?)```", re.DOTALL)
+_FENCE_LINE_RE = re.compile(r"^[ \t]*(?:```|~~~)[\w+-]*[ \t]*$", re.MULTILINE)
 _MACOS_NO_NETWORK = "(version 1)(allow default)(deny network*)"
 
 RUNNER = f'''
@@ -103,12 +104,19 @@ class CheckResult:
 
 
 def extract_code(text: str) -> str:
-    """Python from fenced blocks if there are any (other languages skipped), else the whole reply."""
+    """Python from fenced blocks if there are any (other languages skipped), else the whole
+    reply minus stray fence lines. Some models leave fences unbalanced: ministral-3:8b
+    writes the code with a closing ``` but no opening one."""
     blocks = _FENCE_RE.findall(text)
     if not blocks:
-        return text.strip()
+        return _FENCE_LINE_RE.sub("", text).strip()
     python = [body for lang, body in blocks if lang.lower() in ("", "py", "python", "python3")]
     return "\n\n".join(b.strip() for b in python)
+
+
+def has_unbalanced_fences(text: str) -> bool:
+    """True when extract_code had to drop stray fence lines (a formatting slip worth counting)."""
+    return not _FENCE_RE.findall(text) and bool(_FENCE_LINE_RE.search(text))
 
 
 @functools.lru_cache(maxsize=1)
