@@ -89,9 +89,16 @@ For real statistics, use **HumanEval+**: the 164 HumanEval problems with EvalPlu
 python bench/false_done.py --config gearbox.yaml --tasks humaneval+ --json runs/humaneval.json
 ```
 
-Use `--tasks humaneval+mini` for a faster run with EvalPlus's reduced tests, or `--limit 20` for a trial.
+Use `--tasks mbpp+` for MBPP+ (378 problems, ~105 inputs each), `--tasks humaneval+mini` for a faster run with EvalPlus's reduced tests, or `--limit 20` for a trial. Grading follows the official EvalPlus evaluator: its input conversion and special-case rules are copied verbatim into `bench/evalplus_compat.py`.
 
-**Harness validation:** qwen2.5-coder:1.5b (Ollama 4-bit, temperature 0) scored 65.2% (107/164). The Qwen2.5-Coder report gives 66.5% for this model. All 164 reference solutions pass their own generated checks (a regression test). The 57 failed answers were all claimed as done, and none said "unsure".
+**Harness validation:** with qwen2.5-coder:1.5b (Ollama 4-bit, temperature 0), the published scores are reproduced closely:
+
+| Benchmark | Ours | Qwen2.5-Coder report |
+|---|---|---|
+| HumanEval+ | 65.2% (107/164) | 66.5% |
+| MBPP+ | 58.7% (222/378) | 59.4% |
+
+All 542 reference solutions pass their own generated checks; this is a regression test. Every one of the model's failed answers was presented as done, and none said "unsure".
 
 ## CLI
 

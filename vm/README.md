@@ -85,15 +85,23 @@ Run it with the hatch on (default) and with `--hatch off`:
 cd ~/gearbox && mkdir -p runs && .venv/bin/python bench/false_done.py --config vm/models.vm.yaml --json runs/false_done_all.json
 ```
 
-## 5. HumanEval+ across all models
+## 5. HumanEval+ and MBPP+ across all models
 
-These are the real numbers for the paper: 164 problems with hidden tests, per model, with the UNSURE hatch on and off. Expect roughly 1–3 hours for both runs. Results appear in the dashboard as each model finishes:
+These are the real numbers for the paper: HumanEval+ (164 problems) and MBPP+ (378 problems), both with hidden tests, per model, with the UNSURE hatch on and off. Results appear in the dashboard as each model finishes.
+
+HumanEval+ (roughly 1–3 hours for both runs):
 
 ```text
 cd ~/gearbox && .venv/bin/python bench/false_done.py --config vm/models.vm.yaml --tasks humaneval+ --json runs/humaneval_hatch_on.json && .venv/bin/python bench/false_done.py --config vm/models.vm.yaml --tasks humaneval+ --hatch off --json runs/humaneval_hatch_off.json
 ```
 
-The test data (under 1 MB) downloads on first use. If the network blocks it, download `HumanEvalPlus.jsonl.gz` from <https://github.com/evalplus/humanevalplus_release/releases/tag/v0.1.10> in a browser and copy it to `~/gearbox/bench/data/`.
+MBPP+ (roughly twice as long, since it has more problems):
+
+```text
+cd ~/gearbox && .venv/bin/python bench/false_done.py --config vm/models.vm.yaml --tasks mbpp+ --json runs/mbpp_hatch_on.json && .venv/bin/python bench/false_done.py --config vm/models.vm.yaml --tasks mbpp+ --hatch off --json runs/mbpp_hatch_off.json
+```
+
+The test data (about 1.3 MB) downloads on first use. If the network blocks it, download `HumanEvalPlus.jsonl.gz` from <https://github.com/evalplus/humanevalplus_release/releases/tag/v0.1.10> and `MbppPlus.jsonl.gz` from <https://github.com/evalplus/mbppplus_release/releases/tag/v0.2.0> in a browser, and copy them to `~/gearbox/bench/data/`.
 
 ## Updating later
 

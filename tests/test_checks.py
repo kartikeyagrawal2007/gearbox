@@ -193,3 +193,44 @@ def test_hidden_check_is_run_but_not_shown():
     dt = asyncio.run(scenario())
     assert "assert add" not in seen[0]  # the worker never saw the tests
     assert dt.view()["verified"] is True  # but they still ran
+
+
+def test_worker_functions_named_test_are_not_run_as_tests():
+    # MBPP's Mbpp/19 asks for a function named test_duplicate(arraynums)
+    answer = "def test_duplicate(nums):\n    return len(nums) != len(set(nums))"
+    assert check(answer, "assert test_duplicate([1, 1])\nassert not test_duplicate([1, 2])").passed
+
+
+def test_cancelling_a_check_kills_its_process():
+    import os
+    import signal
+    import time
+
+    async def scenario(tmp):
+        marker = tmp / "pid"
+        task = asyncio.ensure_future(run_check(
+            "x = 1", f"import os, time\nopen({str(marker)!r}, 'w').write(str(os.getpid()))\ntime.sleep(60)", timeout_s=60))
+        for _ in range(100):
+            await asyncio.sleep(0.05)
+            if marker.exists() and marker.read_text():
+                break
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        return int(marker.read_text())
+
+    import tempfile
+    from pathlib import Path as _P
+    with tempfile.TemporaryDirectory() as tmp:
+        pid = asyncio.run(scenario(_P(tmp)))
+    time.sleep(0.5)
+    try:
+        os.kill(pid, 0)
+        alive = True
+    except ProcessLookupError:
+        alive = False
+    if alive:
+        os.kill(pid, signal.SIGKILL)
+    assert not alive, "the cancelled check kept running"

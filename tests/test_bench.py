@@ -35,7 +35,7 @@ import json  # noqa: E402
 import pytest  # noqa: E402
 
 from gearbox.verify.checks import run_check  # noqa: E402
-from tasksets import SMOKE, humaneval_check, load_tasks  # noqa: E402
+from tasksets import SMOKE, evalplus_check, humaneval_check, load_tasks  # noqa: E402
 
 PROBLEM = {  # shaped like an EvalPlus record
     "task_id": "Demo/0", "entry_point": "truncate_number", "atol": 0,
@@ -83,8 +83,30 @@ def test_find_zero_accepts_any_root():
     assert run("def find_zero(xs):\n    return -1.0", problem).passed
 
 
-@pytest.mark.skipif(not (Path(__file__).resolve().parent.parent / "bench/data/HumanEvalPlus-Mini.jsonl.gz").exists(),
-                    reason="EvalPlus data not downloaded")
+DATA = Path(__file__).resolve().parent.parent / "bench/data"
+
+
+@pytest.mark.skipif(not (DATA / "MbppPlus.jsonl.gz").exists(), reason="EvalPlus data not downloaded")
+def test_every_mbpp_plus_reference_passes_its_own_check():
+    # Catches grader drift from EvalPlus: input conversion, special oracles, data quirks.
+    problems = [json.loads(line) for line in gzip.open(DATA / "MbppPlus.jsonl.gz", "rt")]
+
+    async def all_checks():
+        sem = asyncio.Semaphore(4)
+
+        async def one(p):
+            async with sem:  # Mbpp/599 alone needs ~18 s; leave headroom for a busy machine
+                return await run_check("```python\n" + p["canonical_solution"] + "\n```",
+                                       evalplus_check(p, "mbpp"), timeout_s=120)
+
+        return await asyncio.gather(*(one(p) for p in problems))
+
+    results = asyncio.run(all_checks())
+    assert [p["task_id"] for p, r in zip(problems, results) if not r.passed] == []
+    assert len(load_tasks("mbpp+")) == 378
+
+
+@pytest.mark.skipif(not (DATA / "HumanEvalPlus-Mini.jsonl.gz").exists(), reason="EvalPlus data not downloaded")
 def test_every_reference_solution_passes_its_own_mini_check():
     path = Path(__file__).resolve().parent.parent / "bench/data/HumanEvalPlus-Mini.jsonl.gz"
     problems = [json.loads(line) for line in gzip.open(path, "rt")]
@@ -96,3 +118,12 @@ def test_every_reference_solution_passes_its_own_mini_check():
     results = asyncio.run(all_checks())
     assert [p["task_id"] for p, r in zip(problems, results) if not r.passed] == []
     assert len(load_tasks("humaneval+mini")) == 164 and len(load_tasks("smoke")) == len(SMOKE) == 8
+
+
+def test_mbpp_not_none_tasks_compare_against_is_not_none():
+    # Mbpp/737-style: the output (a re.Match or None) is only checked for "is not None"
+    problem = {"task_id": "Mbpp/737", "entry_point": "check_str", "atol": 0,
+               "prompt": "", "canonical_solution": "import re\ndef check_str(s):\n    return re.search('^[aeiou]', s)\n",
+               "base_input": [["annie"], ["dawood"]], "plus_input": {}}
+    answer = "import re\ndef check_str(s):\n    return re.match(r'[aeiouAEIOU]', s)"
+    assert asyncio.run(run_check(answer, evalplus_check(problem, "mbpp"), timeout_s=30)).passed

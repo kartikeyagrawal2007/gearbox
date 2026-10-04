@@ -26,7 +26,7 @@ import json
 import re
 import time
 
-from tasksets import TASK_SETS, Task, load_tasks
+from tasksets import EVALPLUS_SETS, TASK_SETS, Task, load_tasks
 
 from gearbox.config import load_config
 from gearbox.delegate import brief
@@ -106,7 +106,7 @@ async def main() -> None:
     parser.add_argument("--limit", type=int, help="only the first N tasks (quick trial)")
     parser.add_argument("--concurrency", type=int, default=4,
                         help="tasks in flight per model (default 4, matching OLLAMA_NUM_PARALLEL on the VM)")
-    parser.add_argument("--check-timeout", type=float, help="seconds per check (default: 60 for HumanEval+, else config)")
+    parser.add_argument("--check-timeout", type=float, help="seconds per check (default: 60 for HumanEval+/MBPP+, else config)")
     parser.add_argument("--verbose", action="store_true", help="print every task, not just failures")
     args = parser.parse_args()
     if args.hatch == "off":
@@ -116,7 +116,8 @@ async def main() -> None:
     if not config.code_checks:
         raise SystemExit("set `code_checks: true` in the config first (checks run model-written code)")
     tasks = load_tasks(args.tasks, args.limit)
-    check_timeout = args.check_timeout or (60.0 if args.tasks.startswith("humaneval") else config.check_timeout_s)
+    # EvalPlus inputs can be large (Mbpp/599's reference alone takes ~9 s), so allow a minute.
+    check_timeout = args.check_timeout or (60.0 if args.tasks in EVALPLUS_SETS else config.check_timeout_s)
     config = dataclasses.replace(config, check_timeout_s=check_timeout)
     print(f"{len(tasks)} {args.tasks} tasks, concurrency {args.concurrency}, check timeout {check_timeout:g}s")
     results = []

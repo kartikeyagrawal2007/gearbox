@@ -78,8 +78,12 @@ else:
                       "error are still used):\\n" + traceback.format_exc(limit=2))
 
 try:
+    before = dict(ns)
     exec(compile(open("check.py", encoding="utf-8").read(), "check.py", "exec"), ns)
-    tests = [(name, fn) for name, fn in list(ns.items()) if name.startswith("test_") and callable(fn)]
+    # Only test_ functions the check itself defined: the worker's code may define its own
+    # (e.g. MBPP's Mbpp/19 asks for a function named test_duplicate).
+    tests = [(name, fn) for name, fn in list(ns.items())
+             if name.startswith("test_") and callable(fn) and before.get(name) is not fn]
     for name, fn in tests:
         fn()
 except BaseException as exc:
@@ -173,11 +177,14 @@ async def run_check(result_text: str, check_code: str, timeout_s: float = 20.0) 
         )
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout_s)
-        except asyncio.TimeoutError:
+        except BaseException as e:
+            # Timeout, or the caller was cancelled: never leave the check process running.
             try:
                 proc.kill()
-            except ProcessLookupError:  # it died on its own (e.g. CPU limit) as we timed out
+            except ProcessLookupError:  # it already exited (e.g. by its CPU limit)
                 pass
+            if not isinstance(e, asyncio.TimeoutError):
+                raise
             await proc.wait()
             return CheckResult(False, f"check timed out after {timeout_s}s", time.perf_counter() - start, isolation_mode())
     text = out.decode("utf-8", errors="replace")
