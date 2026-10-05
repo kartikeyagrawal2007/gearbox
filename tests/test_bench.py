@@ -154,3 +154,16 @@ def test_results_follow_the_size_ladder(tmp_path):
     (tmp_path / "r.json").write_text(json.dumps(rows))
     out = render(tmp_path)
     assert out.index("qwen3.5-0.8b") < out.index("qwen3.5-2b") < out.index("qwen3.5-27b")
+
+
+def test_plots_render_from_results(tmp_path):
+    pytest.importorskip("matplotlib")
+    from plots import params_b, size_ladder, vendor, vendors
+
+    assert params_b("qwen3.5-0.8b") == 0.8 and params_b("granite4.2-8b") == 8.0
+    assert vendor("ministral3-3b") == "Ministral 3 (Mistral)" and vendor("qwen2.5-coder-0.5b") is None
+    rows = [{"tier": t, "hatch": "on", "task_set": "humaneval+", "tasks": 10, "passed": p, "unsure": 0,
+             "logic_false_done_rate": (10 - p) / 10}
+            for t, p in (("qwen3.5-0.8b", 2), ("qwen3.5-4b", 7), ("granite4.2-3b", 7), ("gemma3-12b", 8))]
+    made = size_ladder(rows, "humaneval+", tmp_path) + vendors(rows, "humaneval+", tmp_path)
+    assert all(p.exists() and p.stat().st_size > 1000 for p in made)

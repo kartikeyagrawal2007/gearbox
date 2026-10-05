@@ -2,6 +2,8 @@
 
     python bench/results.py              # results from runs/
     python bench/results.py other/dir    # another folder
+    python bench/results.py --export     # compact JSON summary, to copy off a machine
+                                         # you can only reach through a terminal
 
 Shows the latest result per (task set, model, UNSURE hatch). The benchmark writes its JSON
 after every model, so this also shows a run's progress while it's going.
@@ -9,11 +11,12 @@ after every model, so this also shows a run's progress while it's going.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 from gearbox.config import load_config
-from gearbox.ui.server import load_runs
+from gearbox.runs import load_runs
 
 MODELS_CONFIG = Path(__file__).resolve().parent.parent / "vm" / "models.vm.yaml"
 
@@ -52,5 +55,18 @@ def render(runs_dir: Path) -> str:
     return "\n".join(lines).lstrip("\n")
 
 
+SUMMARY_FIELDS = ("task_set", "tier", "hatch", "tasks", "passed", "unsure", "false_done_rate",
+                  "logic_false_done_rate", "format_failures", "fences_repaired")
+
+
+def export(runs_dir: Path) -> str:
+    """One compact JSON line: the per-model numbers without answers or check output.
+    Save it as a .json file in another runs/ folder and every tool here can read it."""
+    rows = [{k: r.get(k) for k in SUMMARY_FIELDS} for r in load_runs(runs_dir, tier_order())["combined"]]
+    return json.dumps(rows, separators=(",", ":"))
+
+
 if __name__ == "__main__":
-    print(render(Path(sys.argv[1] if len(sys.argv) > 1 else "runs")))
+    args = [a for a in sys.argv[1:] if a != "--export"]
+    folder = Path(args[0] if args else "runs")
+    print(export(folder) if "--export" in sys.argv else render(folder))
