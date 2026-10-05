@@ -127,3 +127,30 @@ def test_mbpp_not_none_tasks_compare_against_is_not_none():
                "base_input": [["annie"], ["dawood"]], "plus_input": {}}
     answer = "import re\ndef check_str(s):\n    return re.match(r'[aeiouAEIOU]', s)"
     assert asyncio.run(run_check(answer, evalplus_check(problem, "mbpp"), timeout_s=30)).passed
+
+
+def test_results_table_for_terminals(tmp_path):
+    from results import render
+
+    assert "No results" in render(tmp_path)
+    (tmp_path / "he.json").write_text(json.dumps([
+        {"tier": "qwen3.5-0.8b", "hatch": "on", "task_set": "humaneval+", "tasks": 164, "passed": 80, "unsure": 0,
+         "false_done_rate": 0.512, "logic_false_done_rate": 0.512, "format_failures": 0, "fences_repaired": 2, "rows": []},
+    ]))
+    (tmp_path / "old.json").write_text(json.dumps([
+        {"tier": "q0.5b", "tasks": 8, "passed": 1, "false_done_rate": 0.5, "rows": [{"outcome": "unsure"}]},
+    ]))
+    out = render(tmp_path)
+    assert "== humaneval+" in out and "== smoke" in out
+    assert "qwen3.5-0.8b" in out and "80/164 (49%)" in out and " 51%" in out
+    assert "q0.5b" in out  # older files without the newer fields still render
+
+
+def test_results_follow_the_size_ladder(tmp_path):
+    from results import render
+
+    rows = [{"tier": t, "hatch": "on", "task_set": "humaneval+", "tasks": 1, "passed": 1, "unsure": 0,
+             "false_done_rate": 0, "rows": []} for t in ("qwen3.5-27b", "qwen3.5-2b", "qwen3.5-0.8b")]
+    (tmp_path / "r.json").write_text(json.dumps(rows))
+    out = render(tmp_path)
+    assert out.index("qwen3.5-0.8b") < out.index("qwen3.5-2b") < out.index("qwen3.5-27b")
