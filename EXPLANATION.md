@@ -116,6 +116,8 @@ bench/                    benchmarks (not part of the installed package)
   routing_sim.py          replays recorded answers under routing strategies (no GPU needed)
   weak_checks.py          the cascade with weaker checks, and leverage as a start tier (no GPU needed)
   async_bench.py          the async delegation experiment: four modes, repeated, two placements
+  router_train.py         the learned router: predicts which models solve a problem (IRT), assigns the cheapest
+  router_features.py      collects judge ratings and embeddings for the learned router (lab GPU)
 vm/                       setting up and using the A5000 lab machine
   setup_wsl.sh            one-shot setup inside WSL Ubuntu (Ollama, Python, tests)
   pull_models.sh          downloads the 12-model benchmark set
@@ -125,7 +127,7 @@ vm/                       setting up and using the A5000 lab machine
   async.vm.yaml           host and worker tiers for the async experiment, on GPU and CPU
   ollama_cpu.sh           a second, CPU-only Ollama (port 11435) for the worker-on-CPU placement
 docs/                     lit-review.md (the go/no-go check), related-work.md, paper/ (outline, results, figures)
-tests/                    112 automated tests: run them with `.venv/bin/python -m pytest -q`
+tests/                    115 automated tests: run them with `.venv/bin/python -m pytest -q`
 ```
 
 **Two configs, two jobs.**

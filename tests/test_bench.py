@@ -213,3 +213,32 @@ def test_remote_host_is_emulated_by_time_and_skips_host_only():
     assert provider.calls.count("t0") == 2 * len(runs)       # only workers called a model
     assert abs(runs["parallel"]["host_work_s"] - 0.6) < 0.1  # two emulated steps of 0.3 s
     assert runs["async"]["wall_s"] < 0.8 * runs["blocking"]["wall_s"]
+
+
+# --- Learned router (bench/router_train.py) ---
+
+import numpy as _np  # noqa: E402
+
+from router_train import TextModel, fit_irt, pick  # noqa: E402
+
+
+def test_irt_recovers_who_is_stronger_and_what_is_harder():
+    # 3 models (weak..strong) x 4 problems (easy..hard): a staircase of solves
+    Y = _np.array([[1, 1, 1], [0, 1, 1], [0, 0, 1], [0, 0, 0]], dtype=float)
+    a, b = fit_irt(Y)
+    assert list(_np.argsort(a)) == [0, 1, 2]
+    assert list(_np.argsort(b)) == [0, 1, 2, 3]
+
+
+def test_pick_assigns_the_cheapest_model_that_clears_the_bar():
+    P = _np.array([[0.9, 0.95, 0.99], [0.2, 0.75, 0.9], [0.1, 0.2, 0.4]])
+    assert list(pick(P, 0.7)) == [0, 1, 2]   # last row clears nothing: the top model
+    assert list(pick(P, 0.8)) == [0, 2, 2]
+
+
+def test_text_model_learns_from_an_informative_feature():
+    ids = [f"p{i}" for i in range(30)]
+    y = _np.linspace(-2, 2, 30)
+    extra = {"judge:x": {i: float(v) for i, v in zip(ids, y)}}  # a perfect judge
+    tm = TextModel(["judge:x"], extra).fit(ids, [""] * 30, ["f"] * 30, y)
+    assert _np.corrcoef(tm.predict(ids, [""] * 30, ["f"] * 30), y)[0, 1] > 0.99
