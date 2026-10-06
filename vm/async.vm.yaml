@@ -1,0 +1,17 @@
+# Tiers for the async delegation experiment (bench/async_bench.py). Not a routing ladder.
+#
+# The same models twice: on the GPU (the main Ollama, port 11434) and on the CPU (a second,
+# CPU-only Ollama on port 11435 started by vm/ollama_cpu.sh, sharing the same model files).
+# The worker tier picks the placement: "-cpu" leaves the whole GPU to the host.
+tiers:
+  - {name: qwen3.5-2b,      model: ollama_chat/qwen3.5:2b,  params: {reasoning_effort: none}}
+  - {name: qwen3.5-4b,      model: ollama_chat/qwen3.5:4b,  params: {reasoning_effort: none}}
+  - {name: qwen3.5-9b,      model: ollama_chat/qwen3.5:9b,  params: {reasoning_effort: none}}
+  - {name: qwen3.5-27b,     model: ollama_chat/qwen3.5:27b, params: {reasoning_effort: none}}
+  - {name: qwen3.5-2b-cpu,  model: ollama_chat/qwen3.5:2b,  api_base: "http://127.0.0.1:11435", params: {reasoning_effort: none}}
+  - {name: qwen3.5-4b-cpu,  model: ollama_chat/qwen3.5:4b,  api_base: "http://127.0.0.1:11435", params: {reasoning_effort: none}}
+
+max_escalations: 0
+task_timeout_s: 1800
+code_checks: true
+check_timeout_s: 60

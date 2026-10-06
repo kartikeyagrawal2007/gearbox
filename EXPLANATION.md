@@ -111,14 +111,19 @@ bench/                    benchmarks (not part of the installed package)
   evalplus_compat.py      EvalPlus's grading code, copied verbatim (do not edit)
   results.py              prints the results table in a terminal (and --export for copying)
   plots.py                makes the paper figures
+  routing_sim.py          replays recorded answers under routing strategies (no GPU needed)
+  weak_checks.py          the cascade with weaker checks, and leverage as a start tier (no GPU needed)
+  async_bench.py          the async delegation experiment: four modes, repeated, two placements
 vm/                       setting up and using the A5000 lab machine
   setup_wsl.sh            one-shot setup inside WSL Ubuntu (Ollama, Python, tests)
   pull_models.sh          downloads the 12-model benchmark set
   verify_models.py        checks every model answers, with "thinking" off
   models.vm.yaml          all 12 models as tiers (for benchmarks)
   gearbox.vm.yaml         the Qwen3.5 ladder (for routing experiments)
+  async.vm.yaml           host and worker tiers for the async experiment, on GPU and CPU
+  ollama_cpu.sh           a second, CPU-only Ollama (port 11435) for the worker-on-CPU placement
 docs/                     lit-review.md (the go/no-go check), related-work.md, paper/ (outline, results, figures)
-tests/                    96 automated tests: run them with `.venv/bin/python -m pytest -q`
+tests/                    97 automated tests: run them with `.venv/bin/python -m pytest -q`
 ```
 
 **Two configs, two jobs.**
@@ -168,7 +173,18 @@ Both make **the same model calls**, so any time difference comes from overlappin
 2. **Temperature 0, plus a comparability check.** If the phases still made different calls (e.g. one escalated), the result is reported as "not comparable" rather than as a speedup.
 3. **The speedup ceiling.** Async can only remove time the host spent waiting.
 
-On your Mac (one GPU, both models on it) async gave about 1.0×, against a ceiling of about 1.09×. There was little waiting to remove, and the models slowed each other down. The open question for the paper is how this changes when host and worker are on **different hardware**, and when worker tasks are **longer**.
+On your Mac (one GPU, both models on it) async gave about 1.0×, against a ceiling of about 1.09×. There was little waiting to remove, and the models slowed each other down.
+
+The race is the dashboard's demo. **The paper's experiment is `bench/async_bench.py`**, which runs one episode (k HumanEval+ subtasks plus k host steps) in four modes:
+
+| Mode | What the host does |
+|---|---|
+| host_only | solves the subtasks itself: no delegation |
+| blocking | delegate one, wait, do a host step; repeat |
+| parallel | delegate all, wait for all, then do the host steps |
+| async | delegate all, do the host steps meanwhile, then collect |
+
+Comparing them splits the saving by cause: **blocking → parallel** is the gain from workers running side by side, and **parallel → async** is the gain from the host not waiting (the paper's claim). It repeats each condition with the mode order rotated, so no mode always goes first. It runs with the worker on the same GPU as the host, or on the CPU (`vm/ollama_cpu.sh`). It also records whether each model really sat on the GPU. Steps are in `vm/README.md`, section 6.
 
 ---
 
@@ -192,15 +208,20 @@ Each of these changed a headline number before it was caught. They make a good "
 
 ## 9. What we've found so far
 
-From HumanEval+ on the A5000 (details in `docs/paper/results.md`):
+From HumanEval+ and MBPP+ on the A5000 (details in `docs/paper/results.md`):
 
 - **Bigger is more reliable, with a plateau.** Qwen3.5 0.8B → 27B: 23% → 93% solved, false-done 70% → 7%. The 4B and 9B are about equal.
 - **Models almost never say "unsure".** Across 11 current models only the 0.8B ever did (8 times), while being wrong on 70% of what it claimed. "Escalate when the worker asks for help" can't work, so **checks are necessary**.
 - **The escape hatch didn't help anyone**, and it hurt the smallest model.
-- **The vendor matters as much as size.** Granite 8B (87%) beat every other model under 27B.
+- **Vendor rankings don't transfer between benchmarks.** Granite 8B led HumanEval+ (87%), but on MBPP+ it tied with Gemma 12B and Qwen 9B (71–72%).
 - **Code specialization beats size at the low end.** An older 0.5B coder (55%) beat Qwen3.5 0.8B and 2B.
 - **Formatting can decide the score.** 38 of Ministral 8B's answers needed fence repair.
-- **Async on one shared GPU barely helps** (Mac race). Separate hardware is next.
+- **MBPP+ repeats the main findings:** reliability rises with size, only the 0.8B ever says unsure, and even the 27B claims "done" on 21% wrong answers.
+- **Start cheap, check, escalate** beats always using the 27B on accuracy and cost, *if the check is perfect*: 95.7% at about a third of the cost on HumanEval+ (`bench/routing_sim.py`).
+- **Our difficulty heuristic has no signal.** It does no better than assigning the same tiers at random.
+- **The cascade is only as good as its check** (`bench/weak_checks.py`). With a 1-test check, wrong answers slip through and HumanEval+ accuracy drops to 62%.
+- **Leverage compensates for a weak check.** Starting the cascade at the 4B instead of the 0.8B restores 82% at cost 5.2 with a 1-test check. So leverage should scale with **how weak the check is**, not how hard the prompt looks.
+- **Async on one shared GPU barely helps** (Mac race, and the Mac run of `async_bench.py`). The lab PC run decides the main claim.
 
 ---
 
@@ -235,10 +256,7 @@ Useful options: `--tasks mbpp+`, `--hatch off`, `--tiers qwen3.5-4b gemma3-4b`, 
 
 ## 11. What's next
 
-1. Finish the VM runs (HumanEval+ hatch off, MBPP+), then export them and regenerate the figures from exact data.
-2. Upgrade the race:
-   - repeat runs and alternate their order, with confidence intervals
-   - put the worker on the CPU and the host on the GPU (separate hardware)
-   - vary how long worker tasks take
-3. The verify-and-escalate experiment: how much accuracy escalation recovers, and at what cost.
+1. **Run the async experiment on the lab PC** (`vm/README.md`, section 6). It decides how the paper is framed.
+2. Make the tool use the weak-check finding: choose leverage from the check's strength.
+3. Statistics (confidence intervals, paired tests) and the `docs/paper/results.md` update.
 4. Write the paper (`docs/paper/outline.md`), post it to arXiv, then submit to TMLR.

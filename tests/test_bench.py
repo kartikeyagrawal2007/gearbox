@@ -167,3 +167,32 @@ def test_plots_render_from_results(tmp_path):
             for t, p in (("qwen3.5-0.8b", 2), ("qwen3.5-4b", 7), ("granite4.2-3b", 7), ("gemma3-12b", 8))]
     made = size_ladder(rows, "humaneval+", tmp_path) + vendors(rows, "humaneval+", tmp_path)
     assert all(p.exists() and p.stat().st_size > 1000 for p in made)
+
+
+# --- Async delegation experiment (bench/async_bench.py) ---
+
+import dataclasses as _dc  # noqa: E402
+
+from async_bench import MODES, Episode, run_episode, summarize  # noqa: E402
+from fakes import FakeProvider, make_config  # noqa: E402
+
+from tasksets import Task  # noqa: E402
+
+
+def test_async_episode_overlaps_host_work_with_workers():
+    config = _dc.replace(make_config(2), code_checks=True, max_concurrent=4, max_escalations=0)
+    provider = FakeProvider({"t0": "def f():\n    return 1", "t1": "def f():\n    return 1"}, delay=0.3)
+    subtask = Task("p", "Write f() returning 1.", "assert f() == 1", ("f",), show_check=False)
+    episode = Episode((subtask, subtask), ("step one", "step two"))
+
+    async def all_modes():
+        return {m: await run_episode(m, episode, config, provider, config.tiers[1], "t0", 64) for m in MODES}
+
+    runs = asyncio.run(all_modes())
+    assert all(r["outcomes"] == ["ok", "ok"] for r in runs.values())
+    assert runs["blocking"]["host_blocked_s"] > 0.3          # waited for each worker in turn
+    assert runs["async"]["wall_s"] < 0.8 * runs["blocking"]["wall_s"]  # host steps overlapped the workers
+    assert runs["host_only"]["worker_busy_s"] == 0           # nothing was delegated
+    records = [{**r, "host": "t1", "worker": "t0", "k": 2, "host_tokens": 64, "rep": 0, "placement": {}}
+               for r in runs.values()]
+    assert "t0" in summarize(records)

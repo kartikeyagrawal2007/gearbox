@@ -103,6 +103,30 @@ cd ~/gearbox && .venv/bin/python bench/false_done.py --config vm/models.vm.yaml 
 
 The test data (about 1.3 MB) downloads on first use. If the network blocks it, download `HumanEvalPlus.jsonl.gz` from <https://github.com/evalplus/humanevalplus_release/releases/tag/v0.1.10> and `MbppPlus.jsonl.gz` from <https://github.com/evalplus/mbppplus_release/releases/tag/v0.2.0> in a browser, and copy them to `~/gearbox/bench/data/`.
 
+## 6. Async delegation: does the host finish sooner if it doesn't wait?
+
+`bench/async_bench.py` runs the same agent episode four ways: the host does everything itself, delegates and waits for each subtask, delegates everything and waits, or delegates everything and keeps working. The host is Qwen3.5 27B on the GPU. The worker is Qwen3.5 4B, either on the same GPU or on the CPU. Run the steps in order.
+
+**a. Start the CPU-only Ollama and check that a model really runs there.** The check must print `OK on the CPU`:
+
+```text
+cd ~/gearbox && git pull -q && bash vm/ollama_cpu.sh start && bash vm/ollama_cpu.sh check
+```
+
+**b. Calibrate (about 8 episodes).** Read the time estimate it prints, and look at the `host GPU` column at the end: it must say `100%`. If the 27B spilled off the GPU when it had to share it with the 4B, the shared-GPU numbers aren't a fair test:
+
+```text
+cd ~/gearbox && .venv/bin/python bench/async_bench.py --k 4 --host-tokens 256 --reps 1 --out runs/async_calibration.jsonl
+```
+
+**c. The full run, in tmux, so a dropped connection doesn't stop it.** It writes one line per episode and skips finished ones, so if it stops, run the same command again:
+
+```text
+tmux new -d -s async "cd ~/gearbox && .venv/bin/python -u bench/async_bench.py --out runs/async.jsonl 2>&1 | tee -a ~/async.log"; sleep 5; tmux ls
+```
+
+Check progress any time with `tail -5 ~/async.log`, and print the tables with `.venv/bin/python bench/async_bench.py --summary runs/async.jsonl`. When it's done, stop the CPU Ollama with `bash vm/ollama_cpu.sh stop`.
+
 ## Updating later
 
 ```text
