@@ -1,0 +1,226 @@
+[
+  {
+    "task_set": "humaneval+",
+    "strategy": "always qwen3.5-0.8b",
+    "accuracy": 0.2317,
+    "cost_b_params": 0.8,
+    "note": ""
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "always qwen3.5-2b",
+    "accuracy": 0.5061,
+    "cost_b_params": 2.0,
+    "note": ""
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "always qwen3.5-4b",
+    "accuracy": 0.7683,
+    "cost_b_params": 4.0,
+    "note": ""
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "always qwen3.5-9b",
+    "accuracy": 0.8049,
+    "cost_b_params": 9.0,
+    "note": ""
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "always qwen3.5-27b",
+    "accuracy": 0.9268,
+    "cost_b_params": 27.0,
+    "note": ""
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "always smallest + escalate",
+    "accuracy": 0.9573,
+    "cost_b_params": 8.01,
+    "note": "cascade"
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "oracle (cheapest that passes)",
+    "accuracy": 0.9573,
+    "cost_b_params": 5.05,
+    "note": ""
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "heuristic, leverage +0",
+    "accuracy": 0.5061,
+    "cost_b_params": 2.05,
+    "note": "tiers used: {'qwen3.5-0.8b': 3, 'qwen3.5-2b': 155, 'qwen3.5-4b': 6}"
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "heuristic, leverage +0, +escalate",
+    "accuracy": 0.9573,
+    "cost_b_params": 8.23,
+    "note": ""
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "shuffled control, +0",
+    "accuracy": 0.5105,
+    "cost_b_params": 2.05,
+    "note": "mean of 200 shuffles"
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "heuristic, leverage +1",
+    "accuracy": 0.7683,
+    "cost_b_params": 4.15,
+    "note": "tiers used: {'qwen3.5-2b': 3, 'qwen3.5-4b': 155, 'qwen3.5-9b': 6}"
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "heuristic, leverage +1, +escalate",
+    "accuracy": 0.9573,
+    "cost_b_params": 9.38,
+    "note": ""
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "shuffled control, +1",
+    "accuracy": 0.7642,
+    "cost_b_params": 4.15,
+    "note": "mean of 200 shuffles"
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "heuristic, leverage +2",
+    "accuracy": 0.8171,
+    "cost_b_params": 9.57,
+    "note": "tiers used: {'qwen3.5-4b': 3, 'qwen3.5-9b': 155, 'qwen3.5-27b': 6}"
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "heuristic, leverage +2, +escalate",
+    "accuracy": 0.9512,
+    "cost_b_params": 14.51,
+    "note": ""
+  },
+  {
+    "task_set": "humaneval+",
+    "strategy": "shuffled control, +2",
+    "accuracy": 0.8091,
+    "cost_b_params": 9.57,
+    "note": "mean of 200 shuffles"
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "always qwen3.5-0.8b",
+    "accuracy": 0.2937,
+    "cost_b_params": 0.8,
+    "note": ""
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "always qwen3.5-2b",
+    "accuracy": 0.4762,
+    "cost_b_params": 2.0,
+    "note": ""
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "always qwen3.5-4b",
+    "accuracy": 0.6481,
+    "cost_b_params": 4.0,
+    "note": ""
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "always qwen3.5-9b",
+    "accuracy": 0.7063,
+    "cost_b_params": 9.0,
+    "note": ""
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "always qwen3.5-27b",
+    "accuracy": 0.7804,
+    "cost_b_params": 27.0,
+    "note": ""
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "always smallest + escalate",
+    "accuracy": 0.8201,
+    "cost_b_params": 13.03,
+    "note": "cascade"
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "oracle (cheapest that passes)",
+    "accuracy": 0.8201,
+    "cost_b_params": 8.24,
+    "note": ""
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "heuristic, leverage +0",
+    "accuracy": 0.4735,
+    "cost_b_params": 1.97,
+    "note": "tiers used: {'qwen3.5-0.8b': 10, 'qwen3.5-2b': 368}"
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "heuristic, leverage +0, +escalate",
+    "accuracy": 0.8175,
+    "cost_b_params": 13.26,
+    "note": ""
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "shuffled control, +0",
+    "accuracy": 0.4712,
+    "cost_b_params": 1.97,
+    "note": "mean of 200 shuffles"
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "heuristic, leverage +1",
+    "accuracy": 0.6455,
+    "cost_b_params": 3.95,
+    "note": "tiers used: {'qwen3.5-2b': 10, 'qwen3.5-4b': 368}"
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "heuristic, leverage +1, +escalate",
+    "accuracy": 0.8148,
+    "cost_b_params": 13.78,
+    "note": ""
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "shuffled control, +1",
+    "accuracy": 0.6437,
+    "cost_b_params": 3.95,
+    "note": "mean of 200 shuffles"
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "heuristic, leverage +2",
+    "accuracy": 0.6958,
+    "cost_b_params": 8.87,
+    "note": "tiers used: {'qwen3.5-4b': 10, 'qwen3.5-9b': 368}"
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "heuristic, leverage +2, +escalate",
+    "accuracy": 0.8069,
+    "cost_b_params": 16.94,
+    "note": ""
+  },
+  {
+    "task_set": "mbpp+",
+    "strategy": "shuffled control, +2",
+    "accuracy": 0.7049,
+    "cost_b_params": 8.87,
+    "note": "mean of 200 shuffles"
+  }
+]
