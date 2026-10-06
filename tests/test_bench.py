@@ -173,7 +173,7 @@ def test_plots_render_from_results(tmp_path):
 
 import dataclasses as _dc  # noqa: E402
 
-from async_bench import MODES, Episode, run_episode, summarize  # noqa: E402
+from async_bench import MODES, Episode, RemoteHost, modes_for, run_episode, summarize  # noqa: E402
 from fakes import FakeProvider, make_config  # noqa: E402
 
 from tasksets import Task  # noqa: E402
@@ -196,3 +196,20 @@ def test_async_episode_overlaps_host_work_with_workers():
     records = [{**r, "host": "t1", "worker": "t0", "k": 2, "host_tokens": 64, "rep": 0, "placement": {}}
                for r in runs.values()]
     assert "t0" in summarize(records)
+
+
+def test_remote_host_is_emulated_by_time_and_skips_host_only():
+    config = _dc.replace(make_config(1), code_checks=True, max_concurrent=4, max_escalations=0)
+    provider = FakeProvider({"t0": "def f():\n    return 1"}, delay=0.3)
+    subtask = Task("p", "Write f() returning 1.", "assert f() == 1", ("f",), show_check=False)
+    episode = Episode((subtask, subtask), ("step one", "step two"))
+    host = RemoteHost(ttft_s=0.1, tokens_per_s=1000)  # 0.1 s + 200 tokens / 1000 = 0.3 s per step
+    assert "host_only" not in modes_for(host)
+
+    async def all_modes():
+        return {m: await run_episode(m, episode, config, provider, host, "t0", 200) for m in modes_for(host)}
+
+    runs = asyncio.run(all_modes())
+    assert provider.calls.count("t0") == 2 * len(runs)       # only workers called a model
+    assert abs(runs["parallel"]["host_work_s"] - 0.6) < 0.1  # two emulated steps of 0.3 s
+    assert runs["async"]["wall_s"] < 0.8 * runs["blocking"]["wall_s"]

@@ -186,6 +186,8 @@ The race is the dashboard's demo. **The paper's experiment is `bench/async_bench
 
 Comparing them splits the saving by cause: **blocking → parallel** is the gain from workers running side by side, and **parallel → async** is the gain from the host not waiting (the paper's claim). It repeats each condition with the mode order rotated, so no mode always goes first. It runs with the worker on the same GPU as the host, or on the CPU (`vm/ollama_cpu.sh`). It also records whether each model really sat on the GPU. Steps are in `vm/README.md`, section 6.
 
+**Remote host.** Gearbox's intended setting is a cloud host (the model in Claude Code) with workers on your own hardware. We can't pay for an API, so `--host remote:1.0:80` *emulates* one: each host step takes 1.0 s + tokens ÷ 80 per second and uses no local hardware, while the workers stay real. On the Mac this gave async **1.45–1.51×** over blocking, the full ceiling. That's because host and workers no longer compete for the same hardware.
+
 ---
 
 ## 8. Measurement traps we hit (all fixed)

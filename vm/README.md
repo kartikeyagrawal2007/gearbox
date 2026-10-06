@@ -127,6 +127,14 @@ tmux new -d -s async "cd ~/gearbox && .venv/bin/python -u bench/async_bench.py -
 
 Check progress any time with `tail -5 ~/async.log`, and print the tables with `.venv/bin/python bench/async_bench.py --summary runs/async.jsonl`. When it's done, stop the CPU Ollama with `bash vm/ollama_cpu.sh stop`.
 
+**d. A cloud host (emulated) with the worker on the GPU.** This is how Gearbox is meant to be used: the host is a cloud model and the workers run locally. The host's steps take the time a cloud API would take (`remote:TTFT:RATE`: seconds to the first token, then tokens per second), so the GPU belongs to the workers. The command waits for the run from step c to finish first, so the two never share the GPU:
+
+```text
+tmux new -d -s remote "cd ~/gearbox && while tmux has-session -t async 2>/dev/null; do sleep 60; done; .venv/bin/python -u bench/async_bench.py --host remote:1.0:80,remote:2.0:40 --workers qwen3.5-4b --reps 3 --out runs/async_remote.jsonl 2>&1 | tee -a ~/async_remote.log"; sleep 5; tmux ls
+```
+
+Check it with `tail -3 ~/async_remote.log`. The CPU Ollama isn't needed for this one.
+
 ## Updating later
 
 ```text
