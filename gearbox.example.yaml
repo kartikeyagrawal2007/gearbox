@@ -40,7 +40,12 @@ difficulty: heuristic       # heuristic (free) | judge (a cheap tier rates diffi
 judge_tier: 0
 max_concurrent: 4           # delegated subtasks running at once
 task_timeout_s: 600         # per attempt
-max_escalations: 1          # move up a tier on UNSURE / error / timeout / failed check
+max_escalations: 1          # move up a tier on UNSURE / error / timeout / failed check.
+                            # With checks, use (number of tiers - 1) so a failure can climb the whole ladder.
+# Leverage for subtasks that come with a check, by how many cases the check tests (weak: 1-3,
+# medium: 4-9, strong: 10+ or a loop over data). Failed checks escalate, so leverage only has
+# to cover what the check misses. Measured on a 5-tier ladder (bench/weak_checks.py); {} = off.
+check_leverage: {weak: 2, medium: 1, strong: 0}
 
 # Executable acceptance checks: delegate(..., check="assert f(2) == 4") runs the host's test code
 # against the worker's answer. This EXECUTES MODEL-WRITTEN CODE. Isolation is best effort (temp dir,

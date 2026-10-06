@@ -14,7 +14,7 @@ risk_scaled_leverage: true
 difficulty: heuristic
 max_concurrent: 4
 task_timeout_s: 600
-max_escalations: 1
+max_escalations: 4   # a failed check can climb the whole ladder (start cheap, escalate)
 
 # Checks run model-written code. On this VM they run inside WSL with no network
 # (unshare -rn) when the kernel allows it; vm/setup_wsl.sh reports which isolation you got.

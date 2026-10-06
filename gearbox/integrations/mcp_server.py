@@ -29,7 +29,9 @@ briefs short.
 Flow: call `delegate`, which returns a task_id immediately. Continue with independent work, \
 then call `await_result` only when you need the output.
 Verify: for code, pass `check` (Python asserts or test_ functions). Gearbox runs it against the \
-worker's answer, escalates to a stronger tier if it fails, and reports `verified`. Without a check, \
+worker's answer, escalates to a stronger tier if it fails, and reports `verified`. A thorough \
+check (10+ cases, or a loop over test data) lets Gearbox start on a cheaper model; a check with \
+1-3 asserts starts two tiers higher, because it lets more wrong answers through. Without a check, \
 verify the result yourself before relying on it.
 Do not delegate: steps that need your full conversation history, open design decisions, or \
 irreversible actions. Set `risk` honestly: higher risk routes to a stronger model.
@@ -89,7 +91,8 @@ async def delegate(
     expected_output_tokens: optional; if given, a break-even estimate is included in the reply.
     check: optional Python test code run against the answer. The worker's code is loaded first,
       then your asserts or test_* functions run; RESULT holds the raw reply text. Failing answers
-      escalate to a stronger tier with the failure shown to it.
+      escalate to a stronger tier with the failure shown to it. The more cases it tests, the
+      cheaper the starting tier (1-3 asserts: +2 tiers, 4-9: +1, 10 or more: +0).
     """
     with caller_errors():
         rt = runtime()

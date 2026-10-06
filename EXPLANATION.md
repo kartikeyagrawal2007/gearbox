@@ -59,6 +59,7 @@ Follow one request through the code. Say Claude Code calls Gearbox's `delegate` 
    - A **difficulty estimator** (`gearbox/difficulty/heuristic.py` is free and keyword-based; `judge.py` asks a cheap model) scores the task from 0 to 1.
    - The score maps to a base tier.
    - **Leverage** shifts it up: +0, +1 or +2 for low, medium or high risk, plus 1 more if the estimate was unsure.
+   - **With a check, leverage comes from the check's strength instead** (`gearbox/verify/strength.py` counts its test cases): weak (1–3) +2, medium (4–9) +1, strong (10+, or a loop over test data) +0, plus the risk level. A failed check escalates anyway, so leverage only has to cover the wrong answers the check lets through. This is the weak-check finding, built into the tool.
 4. **The brief**: `gearbox/delegate/brief.py`. The worker receives a short instruction (system prompt + subtask + "done when" + the check, if it's meant to be visible). It doesn't get the host's whole conversation, which keeps it cheap.
 5. **The model call**: `gearbox/providers.py`, `LiteLLMProvider.complete`. It talks to the model through LiteLLM, with a timeout. A concurrency limit stops too many calls at once.
 6. **Judging the answer**, in `runtime.py` `_attempt`:
@@ -98,6 +99,7 @@ gearbox/                  the installable Python package
   difficulty/             heuristic.py (free) and judge.py (asks a cheap model)
   delegate/               runtime.py (background jobs, escalation) and brief.py (worker instructions)
   verify/checks.py        the sandboxed check runner
+  verify/strength.py      how strong a check is (counts its test cases), which sets its leverage
   providers.py            LiteLLM (real models) and a SimulatedProvider (fake, for demos)
   cost/                   ledger.py, breakeven.py (is delegating worth it?), energy.py (GPU joules)
   race.py                 blocking vs async experiment with timelines
@@ -123,7 +125,7 @@ vm/                       setting up and using the A5000 lab machine
   async.vm.yaml           host and worker tiers for the async experiment, on GPU and CPU
   ollama_cpu.sh           a second, CPU-only Ollama (port 11435) for the worker-on-CPU placement
 docs/                     lit-review.md (the go/no-go check), related-work.md, paper/ (outline, results, figures)
-tests/                    97 automated tests: run them with `.venv/bin/python -m pytest -q`
+tests/                    112 automated tests: run them with `.venv/bin/python -m pytest -q`
 ```
 
 **Two configs, two jobs.**
@@ -259,6 +261,5 @@ Useful options: `--tasks mbpp+`, `--hatch off`, `--tiers qwen3.5-4b gemma3-4b`, 
 ## 11. What's next
 
 1. **Run the async experiment on the lab PC** (`vm/README.md`, section 6). It decides how the paper is framed.
-2. Make the tool use the weak-check finding: choose leverage from the check's strength.
-3. Statistics (confidence intervals, paired tests) and the `docs/paper/results.md` update.
-4. Write the paper (`docs/paper/outline.md`), post it to arXiv, then submit to TMLR.
+2. Statistics (confidence intervals, paired tests) and the `docs/paper/results.md` update.
+3. Write the paper (`docs/paper/outline.md`), post it to arXiv, then submit to TMLR.

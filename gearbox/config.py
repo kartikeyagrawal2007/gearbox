@@ -16,6 +16,7 @@ import yaml
 
 DEFAULT_CONFIG_PATHS = ("gearbox.yaml", "~/.config/gearbox/gearbox.yaml")
 RISK_LEVELS = ("low", "medium", "high")
+CHECK_STRENGTHS = ("weak", "medium", "strong")
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,10 @@ class GearboxConfig:
     host: Pricing = field(default_factory=Pricing)
     leverage: int = 1
     risk_scaled_leverage: bool = True
+    # Leverage for a subtask that comes with a check, by the check's strength (see
+    # gearbox/verify/strength.py). Failed checks escalate, so leverage only has to cover what
+    # the check misses. Defaults from bench/weak_checks.py on a 5-tier ladder; {} turns it off.
+    check_leverage: dict[str, int] = field(default_factory=lambda: {"weak": 2, "medium": 1, "strong": 0}, hash=False)
     difficulty: str = "heuristic"  # "heuristic" | "judge"
     judge_tier: int = 0
     max_concurrent: int = 4
@@ -66,6 +71,11 @@ class GearboxConfig:
             raise ValueError(f"tier names must be unique, got {names}")
         if self.leverage < 0:
             raise ValueError("leverage must be >= 0")
+        unknown = set(self.check_leverage) - set(CHECK_STRENGTHS)
+        if unknown:
+            raise ValueError(f"check_leverage keys must be among {CHECK_STRENGTHS}, got {sorted(unknown)}")
+        if any(not isinstance(v, int) or v < 0 for v in self.check_leverage.values()):
+            raise ValueError("check_leverage values must be integers >= 0")
         if self.difficulty not in ("heuristic", "judge"):
             raise ValueError(f"unknown difficulty estimator {self.difficulty!r}")
         if not 0 <= self.judge_tier < len(self.tiers):

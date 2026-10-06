@@ -25,6 +25,7 @@ from gearbox.delegate.brief import build_messages, estimate_tokens, is_unsure, r
 from gearbox.providers import Completion, LiteLLMProvider, Provider
 from gearbox.router import Router, RoutingDecision
 from gearbox.verify.checks import run_check
+from gearbox.verify.strength import check_strength
 
 
 class TaskState(str, Enum):
@@ -227,7 +228,10 @@ class DelegationRuntime:
                     tier_name=self.config.tiers[forced].name, rationale="tier chosen by caller",
                 )
             else:
-                dt.decision = await self.router.route(messages[-1]["content"], risk=risk, leverage=leverage)
+                dt.decision = await self.router.route(
+                    messages[-1]["content"], risk=risk, leverage=leverage,
+                    check_strength=check_strength(dt.check) if dt.check else None,
+                )
             dt.routed_at = time.time()
             dt.state = TaskState.RUNNING
 
