@@ -72,7 +72,7 @@ async def run_tier(config, tier: str, tasks: list[Task], concurrency: int) -> di
                 else (dt.error or "") if a is None or a.outcome in ("error", "timeout") else ""
             ),
             "fences_repaired": has_unbalanced_fences(dt.result or ""),
-            "answer": (dt.result or "")[:6000],
+            "answer": dt.result or "",  # in full: re-checking a cut-off answer is meaningless
             "check_output": check_output,
         }
 

@@ -34,7 +34,6 @@ from results import tier_order
 from tasksets import load_tasks
 from gearbox.difficulty import HeuristicEstimator
 from gearbox.router import base_tier_for
-from gearbox.runs import load_runs
 
 QWEN = ["qwen3.5-0.8b", "qwen3.5-2b", "qwen3.5-4b", "qwen3.5-9b", "qwen3.5-27b"]
 SETS = {"humaneval+": 164, "mbpp+": 378}
@@ -45,10 +44,19 @@ def outcomes(runs_dir: Path, task_set: str) -> dict[str, dict[str, bool]]:
     n = SETS[task_set]
     out: dict[str, dict[str, bool]] = {}
     for path in sorted(runs_dir.glob("*.json"), key=lambda f: f.stat().st_mtime):
-        for r in json.loads(path.read_text()):
-            if r.get("task_set", "") == task_set and r.get("hatch", "on") == "on" and len(r["rows"]) == n:
+        data = json.loads(path.read_text())
+        for r in data if isinstance(data, list) else []:
+            if isinstance(r, dict) and r.get("task_set", "") == task_set and r.get("hatch", "on") == "on" and len(r["rows"]) == n:
                 out[r["tier"]] = {x["task"]: x["outcome"] == "ok" for x in r["rows"]}
     return out
+
+
+def make_ladder(name: str, tiers) -> list[str]:
+    """The Qwen3.5 size ladder, or every recorded model sorted by size (cheapest first)."""
+    if name == "qwen":
+        return QWEN
+    order = tier_order()
+    return sorted(tiers, key=lambda t: (params_b(t), order.index(t) if t in order else 0))
 
 
 def evaluate(ladder, solved, costs, problems, start_tier, escalate):
@@ -69,10 +77,7 @@ def evaluate(ladder, solved, costs, problems, start_tier, escalate):
 
 def simulate(runs_dir: Path, task_set: str, ladder_name: str, shuffles: int, seed: int) -> list[dict]:
     solved = outcomes(runs_dir, task_set)
-    if ladder_name == "qwen":
-        ladder = QWEN
-    else:
-        ladder = sorted(solved, key=lambda t: (params_b(t), tier_order().index(t) if t in tier_order() else 0))
+    ladder = make_ladder(ladder_name, solved)
     costs = [params_b(t) for t in ladder]
     tasks = load_tasks(task_set)
     problems = [t.name for t in tasks]

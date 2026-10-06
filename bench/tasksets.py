@@ -176,8 +176,12 @@ def _b64(text: str) -> str:
     return base64.b64encode(text.encode()).decode()
 
 
-def evalplus_check(problem: dict, dataset: str) -> str:
+def evalplus_check(problem: dict, dataset: str, inputs: list | None = None) -> str:
+    """The official base + plus tests, or only `inputs` (a weaker check, for bench/weak_checks.py)."""
     reference = problem["prompt"] + problem["canonical_solution"] if dataset == "humaneval" else problem["canonical_solution"]
+    if inputs is None:
+        # Mbpp/793 stores its (empty) plus inputs as {} rather than []
+        inputs = list(problem["base_input"]) + list(problem["plus_input"] or [])
     return _CHECK.format(
         dataset=dataset,
         task_id=problem["task_id"],
@@ -185,8 +189,7 @@ def evalplus_check(problem: dict, dataset: str) -> str:
         atol=problem.get("atol") or 0,
         compat=_b64(COMPAT_SOURCE),
         ref=_b64(reference),
-        # Mbpp/793 stores its (empty) plus inputs as {} rather than []
-        inputs=_b64(json.dumps(list(problem["base_input"]) + list(problem["plus_input"] or []))),
+        inputs=_b64(json.dumps(inputs)),
     )
 
 
