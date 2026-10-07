@@ -34,6 +34,8 @@ class RoutingDecision:
     tier: int
     tier_name: str
     rationale: str
+    pass_prob: tuple[float | None, ...] | None = None  # learned router: chance each tier passes
+    check_strength: str | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -44,6 +46,8 @@ class RoutingDecision:
             "difficulty": self.score,
             "confidence": self.confidence,
             "rationale": self.rationale,
+            "pass_prob": None if self.pass_prob is None else [None if p is None else round(p, 3) for p in self.pass_prob],
+            "check_strength": self.check_strength,
         }
 
 
@@ -107,6 +111,8 @@ def decide(
         tier=tier,
         tier_name=config.tiers[tier].name,
         rationale=rationale,
+        pass_prob=estimate.pass_prob,
+        check_strength=check_strength,
     )
 
 

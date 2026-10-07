@@ -1,0 +1,18 @@
+# The dashboard demo on the A5000: the Qwen3.5 ladder with the learned router switched on, so
+# "Watch a delegation" shows each subtask's chance to pass per model. Start it with:
+#   .venv/bin/gearbox --config vm/demo.vm.yaml ui
+tiers:
+  - {name: q0.8b, model: ollama_chat/qwen3.5:0.8b, params: {reasoning_effort: none}}
+  - {name: q2b,   model: ollama_chat/qwen3.5:2b,   params: {reasoning_effort: none}}
+  - {name: q4b,   model: ollama_chat/qwen3.5:4b,   params: {reasoning_effort: none}}
+  - {name: q9b,   model: ollama_chat/qwen3.5:9b,   params: {reasoning_effort: none}}
+  - {name: q27b,  model: ollama_chat/qwen3.5:27b,  params: {reasoning_effort: none}}
+
+difficulty: learned                        # the 4B judge rates each subtask; see docs/paper/results.md 5.4
+router_model: ../routers/judge-qwen3.5-4b.json
+learned_tau: {none: 0.9, weak: 0.9, medium: 0.8, strong: 0.0}
+max_concurrent: 4
+max_escalations: 4                         # a failed check can climb the whole ladder
+task_timeout_s: 600
+code_checks: true
+check_timeout_s: 20

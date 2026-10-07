@@ -4,13 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gearbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #f6f6f3; --panel: #ffffff; --border: #e3e2dc; --text: #1f1e1b; --muted: #6b6a64;
     --accent: #5b50d6; --accent-soft: #eeedfe; --worker: #1d9e75; --worker-soft: #e1f5ee;
     --warn: #ba7517; --warn-soft: #faeeda; --bad: #c43d3d; --bad-soft: #fcebeb; --ok: #3b6d11; --ok-soft: #eaf3de;
     --host: #5f5e5a; --host-soft: #d3d1c7; --radius: 10px;
-    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -21,7 +25,9 @@
     }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, sans-serif; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(--sans); }
+  ::selection { background: var(--accent-soft); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   header { padding: 18px 28px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; align-items: center; gap: 14px; background: var(--panel); }
   header h1 { font-size: 20px; margin: 0; font-weight: 600; }
   header .tag { color: var(--muted); }
@@ -117,6 +123,48 @@
   .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   .verdict { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
   .verdict.neutral { background: var(--bg); color: var(--text); font-weight: 400; }
+  /* Watch a delegation */
+  .ep-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+  .ep-controls > div { min-width: 160px; }
+  .stages { list-style: none; display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; padding: 0; margin: 20px 0 16px; counter-reset: st; }
+  .stages li { counter-increment: st; border-top: 3px solid var(--border); padding-top: 8px; font-size: 13px; color: var(--muted); transition: border-color .2s ease-out, color .2s ease-out; }
+  .stages li::before { content: counter(st) "  "; font-family: var(--mono); font-size: 12px; }
+  .stages li.on { border-color: var(--accent); color: var(--text); font-weight: 500; }
+  .stages li.done { border-color: var(--worker); color: var(--text); }
+  .ep-grid { display: grid; grid-template-columns: minmax(180px, 1.1fr) minmax(170px, 1fr) minmax(260px, 2.6fr) minmax(150px, .9fr); gap: 4px 16px; align-items: center; }
+  .ep-grid .hd { font-size: 12px; color: var(--muted); padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .ep-row { display: contents; }
+  .ep-row > * { padding: 10px 0; border-bottom: 1px solid var(--border); min-width: 0; }
+  .ep-task b { display: block; font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ep-task small { color: var(--muted); font-size: 12px; }
+  .ladderbars { display: flex; gap: 3px; align-items: flex-end; height: 44px; }
+  .ladderbars .t { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; font-size: 10px; color: var(--muted); min-width: 0; }
+  .ladderbars .t i { display: block; width: 100%; background: var(--host-soft); border-radius: 3px 3px 0 0; min-height: 2px; }
+  .ladderbars .t.pick i { background: var(--accent); }
+  .ladderbars .t.pick { color: var(--accent); font-weight: 600; }
+  .ladderbars .t span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .route-note { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .ep-lane .track { height: 30px; }
+  .bar.att { color: var(--worker); background: var(--worker-soft); border: 1px solid var(--worker); }
+  .bar.att.fail { color: var(--bad); background: var(--bad-soft); border-color: var(--bad); }
+  .bar.att.running { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+  .bar.queued { color: var(--muted); border: 1px dashed var(--border); background: transparent; }
+  .ep-out { font-size: 13px; }
+  .ep-out .path { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .host-row > * { border-bottom: 2px solid var(--border); }
+  .ep-summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 18px; }
+  .ep-summary .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ep-summary .k { font-size: 12px; color: var(--muted); }
+  .ep-axis { position: relative; height: 16px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .ep-axis span { position: absolute; transform: translateX(-50%); }
+  @media (max-width: 900px) {
+    .ep-grid { grid-template-columns: 1fr; }
+    .ep-grid .hd { display: none; }
+    .ep-row > * { border-bottom: 0; padding: 4px 0; }
+    .ep-row > :last-child { border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+    .stages { grid-template-columns: repeat(5, minmax(0, 1fr)); font-size: 11px; }
+    .ep-summary { grid-template-columns: repeat(2, 1fr); }
+  }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 14px; } .lane { grid-template-columns: 80px 1fr; } .axis { margin-left: 90px; } }
 </style>
 </head>
@@ -129,6 +177,28 @@
 </header>
 
 <main>
+  <section class="card wide" aria-labelledby="h-episode">
+    <h2 id="h-episode">Watch a delegation <span class="hint">the boss hands off a batch of subtasks, keeps working, and collects checked results</span></h2>
+    <div class="ep-controls">
+      <div><label for="ep-host">Boss (expensive model)</label><select id="ep-host"></select></div>
+      <div><label id="ep-mode-label">When workers run</label><div class="seg" id="ep-mode" role="group" aria-labelledby="ep-mode-label"></div></div>
+      <button class="btn primary" id="btn-episode">Run the batch</button>
+      <span id="ep-msg" class="muted"></span>
+    </div>
+    <details><summary>Edit the batch</summary>
+      <label for="ep-subtasks">Subtasks, one JSON object per line: {"task": ..., "check": ...}</label>
+      <textarea id="ep-subtasks" class="mono" style="min-height:120px"></textarea>
+      <label for="ep-steps">The boss's own work while it waits, one step per line</label>
+      <textarea id="ep-steps" style="min-height:52px"></textarea>
+    </details>
+    <div id="ep-err" class="err" role="alert"></div>
+    <ol class="stages" id="ep-stages" aria-label="Progress">
+      <li data-s="route">Pick a model</li><li data-s="handoff">Hand off</li>
+      <li data-s="parallel">Work in parallel</li><li data-s="check">Check</li><li data-s="return">Return</li>
+    </ol>
+    <div id="episode"><div class="empty">Run the batch to watch each subtask get routed, handed off, worked on, checked and returned.</div></div>
+  </section>
+
   <section class="card" aria-labelledby="h-compose">
     <h2 id="h-compose">Delegate a subtask <span class="hint">the host hands this to a cheaper tier and keeps working</span></h2>
     <label for="task">Subtask</label>
@@ -494,7 +564,122 @@ function renderRace(r) {
   $('race').replaceChildren(...out);
 }
 
-init();
+const EP_PRESET = [
+  {task: "Write a Python function slugify(text) that lowercases, strips accents and joins words with single hyphens. Code only.",
+   check: "assert slugify('Héllo  World!') == 'hello-world'\nassert slugify('  a--b  ') == 'a-b'\nassert slugify('') == ''"},
+  {task: "Write a Python function roman_to_int(s) that converts a Roman numeral to an integer. Code only.",
+   check: "for s, n in [('III', 3), ('IV', 4), ('IX', 9), ('LVIII', 58), ('MCMXCIV', 1994)]:\n    assert roman_to_int(s) == n"},
+  {task: "Write a Python function merge_intervals(xs) that merges overlapping [start, end] intervals and returns them sorted as lists. Code only.",
+   check: "assert merge_intervals([[1, 3], [2, 6], [8, 10], [15, 18]]) == [[1, 6], [8, 10], [15, 18]]\nassert merge_intervals([]) == []"},
+];
+const EP_STEPS = ["In three sentences, plan the module these functions belong to.", "List the edge cases the module's integration tests must cover."];
+let epMode = 'auto', epTimer = null;
+
+function setupEpisode() {
+  fillSelect($('ep-host'), CONFIG.tiers.filter(usable).map(t => [t.name, `${t.name} (${modelName(t)})`]),
+             CONFIG.tiers[CONFIG.tiers.length - 1].name);
+  $('ep-host').value = CONFIG.tiers[CONFIG.tiers.length - 1].name;
+  $('ep-mode').replaceChildren(...[['auto', 'Auto'], ['async', 'At once (async)'], ['burst', 'When the boss waits (burst)']].map(([v, l]) =>
+    h('button', { type: 'button', 'data-v': v, class: v === epMode ? 'on' : '', onclick: () => {
+      epMode = v; $('ep-mode').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); } }, l)));
+  $('ep-subtasks').value = EP_PRESET.map(s => JSON.stringify(s)).join('\n');
+  $('ep-steps').value = EP_STEPS.join('\n');
+  $('btn-episode').onclick = runEpisode;
+}
+
+async function runEpisode() {
+  $('ep-err').textContent = '';
+  let subtasks;
+  try { subtasks = $('ep-subtasks').value.split('\n').filter(l => l.trim()).map(l => JSON.parse(l)); }
+  catch (e) { $('ep-err').textContent = 'Each subtask line must be JSON like {"task": "...", "check": "..."}.'; return; }
+  $('btn-episode').disabled = true; $('ep-msg').textContent = 'Starting…';
+  try {
+    const { episode_id } = await api('/api/episode', { subtasks, host_steps: $('ep-steps').value.split('\n'),
+      host_tier: $('ep-host').value, mode: epMode === 'auto' ? null : epMode });
+    clearInterval(epTimer);
+    const tick = async () => {
+      const e = await api('/api/episode/' + episode_id);
+      renderEpisode(e);
+      if (e.status === 'done' || e.status === 'failed') { clearInterval(epTimer); $('btn-episode').disabled = false; }
+    };
+    epTimer = setInterval(tick, 500); tick();
+  } catch (e) { $('ep-err').textContent = e.message; $('btn-episode').disabled = false; $('ep-msg').textContent = ''; }
+}
+
+function stageOf(e) {
+  const t = e.tasks, any = (f) => t.some(f), all = (f) => t.length && t.every(f);
+  if (e.status === 'done') return 5;
+  if (any(x => x.attempts.some(a => a.outcome !== 'running'))) return 4;
+  if (any(x => x.attempts.length)) return 3;
+  if (all(x => x.routing)) return 2;
+  return 1;
+}
+
+function renderEpisode(e) {
+  const stage = stageOf(e);
+  $('ep-stages').querySelectorAll('li').forEach((li, i) => { li.className = i + 1 < stage ? 'done' : i + 1 === stage ? 'on' : ''; });
+  $('ep-msg').textContent = e.status === 'running' ? `Running in ${e.mode} mode · ${fmtS(e.elapsed_s)}` :
+    e.status === 'done' ? `Finished in ${fmtS(e.elapsed_s)}` : e.error || '';
+  const ends = [...e.host.map(s => s.end), ...e.tasks.flatMap(t => t.attempts.map(a => a.end)), e.elapsed_s];
+  const span = niceMax(Math.max(1, ...ends));
+  const pct = (x) => (100 * x / span) + '%';
+  const tiers = CONFIG.tiers.map(t => t.name);
+
+  const routeCell = (t) => {
+    const r = t.routing;
+    if (!r) return h('div', { class: 'route-note' }, h('span', { class: 'spin' }), ' picking…');
+    const probs = r.pass_prob;
+    return h('div', {},
+      h('div', { class: 'ladderbars', 'aria-label': `Routed to ${r.tier}` }, tiers.map((name, i) => {
+        const p = probs ? probs[i] : null, height = probs ? (p == null ? 2 : Math.max(4, p * 100)) : (i <= r.tier_index ? 30 + 70 * i / tiers.length : 6);
+        return h('div', { class: 't' + (i === r.tier_index ? ' pick' : ''), title: p == null ? name : `${name}: ${Math.round(p * 100)}% chance to pass` },
+          h('i', { style: `height:${height}%` }), h('span', {}, probs && p != null ? Math.round(p * 100) + '%' : name.replace(/^qwen3\.5-/, '')));
+      })),
+      h('div', { class: 'route-note' }, `${r.tier}` + (t.check_strength ? ` · ${t.check_strength} check` + (t.check_cases ? ` (${t.check_cases} cases)` : '') : ' · no check')));
+  };
+  const laneCell = (t) => h('div', { class: 'ep-lane' }, h('div', { class: 'track' },
+    t.state === 'queued' ? h('div', { class: 'bar queued', style: `left:0;width:${pct(e.elapsed_s)}` }, 'held until the boss waits') : null,
+    t.attempts.map(a => h('div', {
+      class: 'bar att' + (a.outcome === 'running' ? ' running' : a.outcome === 'ok' ? '' : ' fail'),
+      style: `left:${pct(a.start)};width:calc(${pct(Math.max(a.end - a.start, 0.05))})`,
+      title: `${a.tier}: ${a.outcome}${a.check ? '\n' + a.check : ''}` },
+      (a.outcome === 'ok' ? '✓ ' : a.outcome === 'running' ? '' : '✕ ') + a.tier))));
+  const outCell = (t) => {
+    const tried = t.attempts.filter(a => a.outcome !== 'running').map(a => a.tier);
+    const badge = t.verified === true ? h('span', { class: 'pill s-verified' }, 'verified') :
+      t.verified === false ? h('span', { class: 'pill s-unverified' }, 'failed checks') :
+      t.state === 'done' ? h('span', { class: 'pill s-done' }, 'done') : h('span', { class: 'pill s-running' }, t.state);
+    return h('div', { class: 'ep-out' }, badge,
+      tried.length ? h('div', { class: 'path' }, tried.join(' → ')) : null,
+      t.state === 'done' ? h('div', { class: 'muted', style: 'font-size:12px' }, `boss saved ~${fmtN(t.host_tokens_saved)} tokens`) : null,
+      t.result ? h('details', {}, h('summary', {}, 'Answer'), h('pre', {}, t.result)) : null);
+  };
+  const ticks = [0, .25, .5, .75, 1].map(f => h('span', { style: `left:${f * 100}%` }, fmtS(f * span)));
+  const hostRow = h('div', { class: 'ep-row host-row' },
+    h('div', { class: 'ep-task' }, h('b', {}, 'The boss'), h('small', {}, e.host_tier)),
+    h('div', { class: 'route-note' }, `${e.mode} mode`),
+    h('div', { class: 'ep-lane' }, h('div', { class: 'track' }, e.host.map(s => h('div', {
+      class: 'bar ' + (s.kind === 'work' ? 'work' : 'blocked') + (s.open ? ' open' : ''),
+      style: `left:${pct(s.start)};width:${pct(Math.max(s.end - s.start, 0.05))}`, title: s.label },
+      s.kind === 'work' ? 'own work' : 'waiting')))),
+    h('div', { class: 'route-note' }, `waited ${fmtS(e.summary.host_blocked_s)}`));
+  const s = e.summary;
+  $('episode').replaceChildren(
+    h('div', { class: 'ep-grid' },
+      h('div', { class: 'hd' }, 'Subtask'), h('div', { class: 'hd' }, 'Model picked (chance to pass)'),
+      h('div', { class: 'hd' }, h('div', { class: 'ep-axis' }, ticks)), h('div', { class: 'hd' }, 'Result'),
+      hostRow,
+      e.tasks.map(t => h('div', { class: 'ep-row' },
+        h('div', { class: 'ep-task' }, h('b', { title: t.task }, t.task.replace(/^Write a Python function /, '')), h('small', {}, t.task_id)),
+        routeCell(t), laneCell(t), outCell(t)))),
+    h('div', { class: 'ep-summary' },
+      [[fmtS(e.elapsed_s), 'total time'], [fmtS(s.host_blocked_s), 'the boss spent waiting'],
+       [`${s.verified}/${e.tasks.length}`, 'answers verified by their checks'], [String(s.escalations), 'escalations to a stronger model'],
+       [fmtN(s.host_tokens_saved), 'tokens the boss didn\'t have to write']].map(([v, k]) =>
+        h('div', { class: 'stat' }, h('div', { class: 'v' }, v), h('div', { class: 'k' }, k)))));
+}
+
+init().then(setupEpisode);
 </script>
 </body>
 </html>

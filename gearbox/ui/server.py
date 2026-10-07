@@ -19,6 +19,7 @@ from gearbox.config import RISK_LEVELS, GearboxConfig
 from gearbox.runs import load_runs
 from gearbox.delegate.runtime import DelegationRuntime
 from gearbox.providers import Provider, SimulatedProvider
+from gearbox.episode import Episode
 from gearbox.race import Race
 
 STATIC = Path(__file__).parent / "static"
@@ -74,6 +75,7 @@ def create_app(
             provider = SimulatedProvider([t.name for t in config.tiers])
         runtime = DelegationRuntime(config, provider)
     races: dict[str, Race] = {}
+    episodes: dict[str, Episode] = {}
     background: set[asyncio.Task] = set()  # keep references so race tasks aren't garbage-collected
     runs_path = Path(runs_dir)
 
@@ -161,6 +163,22 @@ def create_app(
     async def get_race(request: Request) -> JSONResponse:
         return JSONResponse(races[request.path_params["race_id"]].snapshot())
 
+    @caller_errors
+    async def start_episode(request: Request) -> JSONResponse:
+        body = await request.json()
+        await require_downloaded(body.get("host_tier") or None)
+        episode = Episode(config, runtime.provider, body["subtasks"], body.get("host_steps") or [],
+                          host_tier=body.get("host_tier") or None, mode=body.get("mode") or None)
+        episodes[episode.id] = episode
+        job = asyncio.get_running_loop().create_task(episode.run())
+        background.add(job)
+        job.add_done_callback(background.discard)
+        return JSONResponse({"episode_id": episode.id})
+
+    @caller_errors
+    async def get_episode(request: Request) -> JSONResponse:
+        return JSONResponse(episodes[request.path_params["episode_id"]].snapshot())
+
     async def runs(request: Request) -> JSONResponse:
         return JSONResponse(load_runs(runs_path, [t.name for t in config.tiers]))
 
@@ -175,6 +193,8 @@ def create_app(
         Route("/api/race", start_race, methods=["POST"]),
         Route("/api/race/{race_id}", get_race),
         Route("/api/runs", runs),
+        Route("/api/episode", start_episode, methods=["POST"]),
+        Route("/api/episode/{episode_id}", get_episode),
     ])
 
 
