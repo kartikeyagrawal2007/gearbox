@@ -53,8 +53,18 @@ class GearboxConfig:
     # gearbox/verify/strength.py). Failed checks escalate, so leverage only has to cover what
     # the check misses. Defaults from bench/weak_checks.py on a 5-tier ladder; {} turns it off.
     check_leverage: dict[str, int] = field(default_factory=lambda: {"weak": 2, "medium": 1, "strong": 0}, hash=False)
-    difficulty: str = "heuristic"  # "heuristic" | "judge"
+    difficulty: str = "heuristic"  # "heuristic" | "judge" | "learned"
     judge_tier: int = 0
+    # The cheapest tier delegated work may start on (name or index); escalation can still go
+    # higher. Tiny models are slow and usually wrong on real tasks: on HumanEval+, starting at
+    # Qwen3.5 4B instead of 0.8B gave the same accuracy in 2.8x less time.
+    start_floor: str | int | None = None
+    # difficulty: learned. A file from bench/router_train.py --export, and the pass-chance bar a
+    # tier must clear, by check strength ("none" = no check): a weak check needs a sure pick, a
+    # strong one can start at the floor and let escalation catch misses.
+    router_model: str | None = None
+    learned_tau: dict[str, float] = field(
+        default_factory=lambda: {"none": 0.9, "weak": 0.9, "medium": 0.8, "strong": 0.0}, hash=False)
     max_concurrent: int = 4
     task_timeout_s: float = 600.0
     max_escalations: int = 1
@@ -76,14 +86,27 @@ class GearboxConfig:
             raise ValueError(f"check_leverage keys must be among {CHECK_STRENGTHS}, got {sorted(unknown)}")
         if any(not isinstance(v, int) or v < 0 for v in self.check_leverage.values()):
             raise ValueError("check_leverage values must be integers >= 0")
-        if self.difficulty not in ("heuristic", "judge"):
+        if self.difficulty not in ("heuristic", "judge", "learned"):
             raise ValueError(f"unknown difficulty estimator {self.difficulty!r}")
+        if self.difficulty == "learned" and not self.router_model:
+            raise ValueError("difficulty: learned needs router_model (a file from bench/router_train.py --export)")
+        if set(self.learned_tau) - {"none", *CHECK_STRENGTHS}:
+            raise ValueError(f"learned_tau keys must be among none, {', '.join(CHECK_STRENGTHS)}")
+        if self.start_floor is not None:
+            try:
+                self.tier_index(self.start_floor)
+            except KeyError as e:
+                raise ValueError(f"start_floor: {e}") from None
         if not 0 <= self.judge_tier < len(self.tiers):
             raise ValueError("judge_tier out of range")
 
     @property
     def top(self) -> int:
         return len(self.tiers) - 1
+
+    @property
+    def floor(self) -> int:
+        return 0 if self.start_floor is None else self.tier_index(self.start_floor)
 
     def tier_index(self, name_or_index: str | int) -> int:
         if isinstance(name_or_index, int):
@@ -131,7 +154,10 @@ def load_config(path: str | os.PathLike[str] | None = None) -> GearboxConfig:
         p = Path(c).expanduser()
         if p.is_file():
             with p.open() as f:
-                return GearboxConfig.from_dict(yaml.safe_load(f) or {})
+                data = yaml.safe_load(f) or {}
+            if data.get("router_model"):  # relative to the config file, not wherever Gearbox was started
+                data["router_model"] = str((p.parent / Path(data["router_model"]).expanduser()).resolve())
+            return GearboxConfig.from_dict(data)
     raise FileNotFoundError(
         "no Gearbox config found; copy gearbox.example.yaml to gearbox.yaml or set GEARBOX_CONFIG"
     )

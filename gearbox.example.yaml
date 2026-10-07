@@ -36,8 +36,15 @@ host:
 
 leverage: 1                 # constant safety margin in tiers (used when no risk is given)
 risk_scaled_leverage: true  # low/medium/high risk -> +0/+1/+2, plus 1 more when the estimator is unsure
-difficulty: heuristic       # heuristic (free) | judge (a cheap tier rates difficulty)
+difficulty: heuristic       # heuristic (free) | judge (a cheap tier rates difficulty) | learned (below)
 judge_tier: 0
+# start_floor: my-small-tier  # never start below this tier; tiny models are slow and usually wrong
+# The learned router: a judge tier rates each task 1-10 and a trained model (bench/router_train.py
+# --export) turns that into a pass chance per tier; the cheapest tier over the bar is chosen.
+# It only knows the models it was trained on (routers/judge-qwen3.5-4b.json: 12 local models).
+# difficulty: learned
+# router_model: routers/judge-qwen3.5-4b.json   # relative to this file
+# learned_tau: {none: 0.9, weak: 0.9, medium: 0.8, strong: 0.0}   # the bar, by check strength
 max_concurrent: 4           # delegated subtasks running at once
 task_timeout_s: 600         # per attempt
 max_escalations: 1          # move up a tier on UNSURE / error / timeout / failed check.

@@ -11,6 +11,10 @@ class DifficultyEstimate:
     score: float  # 0 = trivial, 1 = hardest
     confidence: float  # how much to trust `score`; low confidence raises risk-scaled leverage
     rationale: str = ""
+    # Pass chance per tier (config order), when the estimator can predict it (the learned
+    # estimator); None for tiers it knows nothing about. The router then picks the cheapest
+    # tier that clears a bar instead of mapping `score` to a tier.
+    pass_prob: tuple[float | None, ...] | None = None
 
 
 class DifficultyEstimator(Protocol):
@@ -19,5 +23,7 @@ class DifficultyEstimator(Protocol):
 
 from gearbox.difficulty.heuristic import HeuristicEstimator  # noqa: E402
 from gearbox.difficulty.judge import JudgeEstimator  # noqa: E402
+from gearbox.difficulty.learned import LearnedEstimator, RouterModel  # noqa: E402
 
-__all__ = ["DifficultyEstimate", "DifficultyEstimator", "HeuristicEstimator", "JudgeEstimator"]
+__all__ = ["DifficultyEstimate", "DifficultyEstimator", "HeuristicEstimator", "JudgeEstimator",
+           "LearnedEstimator", "RouterModel"]

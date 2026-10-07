@@ -20,21 +20,15 @@ import argparse
 import asyncio
 import gzip
 import json
-import re
 from pathlib import Path
 
 import httpx
 from tasksets import EVALPLUS_SETS
 
 from gearbox.config import load_config
+from gearbox.difficulty.learned import JUDGE_PROMPT, parse_rating  # one prompt for training and routing
 from gearbox.providers import LiteLLMProvider
 
-JUDGE_PROMPT = (
-    "Here is a programming task. Do not solve it. Rate how hard it is for a small language model "
-    "to solve correctly on the first try, judged by hidden tests that include edge cases: 1 = trivial, "
-    "10 = very hard. Reply with only the number.\n\n{task}"
-)
-_NUMBER = re.compile(r"\b(10|[1-9])\b")
 
 
 def problems() -> dict[str, dict[str, str]]:
@@ -54,8 +48,7 @@ async def judge_all(provider, tier, todo: list[tuple[str, str]], store: dict, co
         async with sem:
             c = await provider.complete(tier, [{"role": "user", "content": JUDGE_PROMPT.format(task=text)}],
                                         max_tokens=8, temperature=0)
-        m = _NUMBER.search(c.text)
-        store[pid] = int(m.group(1)) if m else None
+        store[pid] = parse_rating(c.text)
 
     await asyncio.gather(*(one(pid, text) for pid, text in todo))
 

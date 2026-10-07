@@ -59,6 +59,8 @@ Follow one request through the code. Say Claude Code calls Gearbox's `delegate` 
    - A **difficulty estimator** (`gearbox/difficulty/heuristic.py` is free and keyword-based; `judge.py` asks a cheap model) scores the task from 0 to 1.
    - The score maps to a base tier.
    - **Leverage** shifts it up: +0, +1 or +2 for low, medium or high risk, plus 1 more if the estimate was unsure.
+   - **A floor** (`start_floor`) stops it starting on a tiny model: they're slow and usually wrong, so on HumanEval+ starting at the 4B gave the same accuracy as starting at the 0.8B in 2.8× less time.
+   - **The learned router** (`difficulty: learned`) replaces the guess: a 4B judge rates the task 1–10 (a few tokens), a model trained on our 542 problems × 12 models (`routers/judge-qwen3.5-4b.json`) turns that into each tier's pass chance, and the cheapest tier over a bar is picked. The bar depends on the check: 0.9 with no or a weak check, 0.8 with a medium one, and with a strong check it starts at the floor because escalation catches the misses.
    - **With a check, leverage comes from the check's strength instead** (`gearbox/verify/strength.py` counts its test cases): weak (1–3) +2, medium (4–9) +1, strong (10+, or a loop over test data) +0, plus the risk level. A failed check escalates anyway, so leverage only has to cover the wrong answers the check lets through. This is the weak-check finding, built into the tool.
 4. **The brief**: `gearbox/delegate/brief.py`. The worker receives a short instruction (system prompt + subtask + "done when" + the check, if it's meant to be visible). It doesn't get the host's whole conversation, which keeps it cheap.
 5. **The model call**: `gearbox/providers.py`, `LiteLLMProvider.complete`. It talks to the model through LiteLLM, with a timeout. A concurrency limit stops too many calls at once.
@@ -96,7 +98,7 @@ How a check runs: the worker's code is extracted from its answer (code fences, w
 gearbox/                  the installable Python package
   config.py               reads the YAML config: the tier ladder, prices, switches
   router.py               difficulty + leverage → which tier
-  difficulty/             heuristic.py (free) and judge.py (asks a cheap model)
+  difficulty/             heuristic.py (free), judge.py (asks a cheap model), learned.py (judge + trained model)
   delegate/               runtime.py (background jobs, escalation) and brief.py (worker instructions)
   verify/checks.py        the sandboxed check runner
   verify/strength.py      how strong a check is (counts its test cases), which sets its leverage
@@ -118,6 +120,7 @@ bench/                    benchmarks (not part of the installed package)
   async_bench.py          the async delegation experiment: four modes, repeated, two placements
   router_train.py         the learned router: predicts which models solve a problem (IRT), assigns the cheapest
   router_features.py      collects judge ratings and embeddings for the learned router (lab GPU)
+routers/                  trained learned-router files (judge-qwen3.5-4b.json)
 vm/                       setting up and using the A5000 lab machine
   setup_wsl.sh            one-shot setup inside WSL Ubuntu (Ollama, Python, tests)
   pull_models.sh          downloads the 12-model benchmark set
@@ -127,7 +130,7 @@ vm/                       setting up and using the A5000 lab machine
   async.vm.yaml           host and worker tiers for the async experiment, on GPU and CPU
   ollama_cpu.sh           a second, CPU-only Ollama (port 11435) for the worker-on-CPU placement
 docs/                     lit-review.md (the go/no-go check), related-work.md, paper/ (outline, results, figures)
-tests/                    115 automated tests: run them with `.venv/bin/python -m pytest -q`
+tests/                    121 automated tests: run them with `.venv/bin/python -m pytest -q`
 ```
 
 **Two configs, two jobs.**
@@ -227,7 +230,9 @@ From HumanEval+ and MBPP+ on the A5000 (details in `docs/paper/results.md`):
 - **Our difficulty heuristic has no signal.** It does no better than assigning the same tiers at random.
 - **The cascade is only as good as its check** (`bench/weak_checks.py`). With a 1-test check, wrong answers slip through and HumanEval+ accuracy drops to 62%.
 - **Leverage compensates for a weak check.** Starting the cascade at the 4B instead of the 0.8B restores 82% at cost 5.2 with a 1-test check. So leverage should scale with **how weak the check is**, not how hard the prompt looks.
-- **Async on one shared GPU barely helps** (Mac race, and the Mac run of `async_bench.py`). The lab PC run decides the main claim.
+- **Async works when host and workers don't share hardware.** An emulated cloud host with workers on the A5000: 1.1–1.6× faster than blocking, reaching the predicted ceiling. Host and workers on the same GPU: up to 2× *slower* (they slow each other down far more than taking turns). Workers on the CPU: async helps (1.2–1.4×), but the CPU is too slow to be worth it.
+- **Don't start on tiny models.** Starting the cascade at the 4B instead of the 0.8B: same accuracy, 2.8× less time on HumanEval+ (1.6× on MBPP+).
+- **The guesser needs a judge.** Text features can't predict which model solves a problem (AUC ~0.55); a 4B–27B model *reading* the problem can (0.72–0.74 with three judges, and it transfers between benchmarks). It saves 14–35% cost or time when the check is weak or missing; with a strong check, starting at the 4B is already about as good.
 
 ---
 

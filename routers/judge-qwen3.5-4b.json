@@ -1,0 +1,26 @@
+{
+  "judge_model": "ollama_chat/qwen3.5:4b",
+  "rating_mean": 3.6346863468634685,
+  "rating_sd": 2.6844048381409986,
+  "intercept": -0.4461100836148171,
+  "slope": 0.7016275553376027,
+  "abilities": {
+    "ollama_chat/gemma3:12b": 1.1667,
+    "ollama_chat/gemma3:4b": 0.5586,
+    "ollama_chat/granite4.2:3b": 0.7522,
+    "ollama_chat/granite4.2:8b": 1.4796,
+    "ollama_chat/ministral-3:3b": 0.1389,
+    "ollama_chat/ministral-3:8b": 0.907,
+    "ollama_chat/qwen2.5-coder:0.5b": -0.7831,
+    "ollama_chat/qwen3.5:0.8b": -2.1059,
+    "ollama_chat/qwen3.5:27b": 2.061,
+    "ollama_chat/qwen3.5:2b": -0.7104,
+    "ollama_chat/qwen3.5:4b": 0.7219,
+    "ollama_chat/qwen3.5:9b": 1.1667
+  },
+  "trained_on": [
+    "humaneval+ (164 problems)",
+    "mbpp+ (378 problems)"
+  ],
+  "note": "P(model solves task) = sigmoid(ability - (intercept + slope * (rating - mean) / sd))"
+}

@@ -331,6 +331,35 @@ def render(rows: list[dict]) -> str:
     return "\n".join(out)
 
 
+def export(runs: Path, extra: dict, judge: str, path: Path) -> dict:
+    """Train the deployable router on every problem of both benchmarks and all recorded models,
+    with one judge's rating as the only feature, and write it for gearbox/difficulty/learned.py."""
+    from results import MODELS_CONFIG
+
+    from gearbox.config import load_config
+
+    data = [load_set(runs, ts) for ts in SETS]
+    models = sorted(set.intersection(*(set(d["passed"]) for d in data)))
+    ids = [i for d in data for i in d["ids"]]
+    Y = np.vstack([np.stack([d["passed"][t] for t in models], 1) for d in data])
+    a, b = fit_irt(Y)
+    key = f"judge:{judge}"
+    tm = TextModel([key], extra).fit(ids, [""] * len(ids), [""] * len(ids), b)
+    mu, sd = tm.feat.stats[key]
+    by_name = {t.name: t.model for t in load_config(MODELS_CONFIG).tiers}
+    out = {
+        "judge_model": by_name[judge],
+        "rating_mean": float(mu[0]), "rating_sd": float(sd[0]),
+        "intercept": float(tm.y0), "slope": float(tm.w[0]),
+        "abilities": {by_name[m]: round(float(x), 4) for m, x in zip(models, a)},
+        "trained_on": [f"{ts} ({SETS[ts]} problems)" for ts in SETS],
+        "note": "P(model solves task) = sigmoid(ability - (intercept + slope * (rating - mean) / sd))",
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(out, indent=2) + "\n")
+    return out
+
+
 def load_extra(path: Path) -> dict:
     return json.loads(path.read_text()) if path.exists() else {}
 
@@ -346,9 +375,15 @@ def main() -> None:
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--json")
+    ap.add_argument("--export", metavar="PATH", help="train the deployable router (one judge) and write it here")
+    ap.add_argument("--judge", default="qwen3.5-4b", help="judge tier for --export")
     args = ap.parse_args()
     runs = Path(args.runs)
     extra = load_extra(Path(args.features_file))
+    if args.export:
+        out = export(runs, extra, args.judge, Path(args.export))
+        print(f"wrote {args.export}: judge {out['judge_model']}, {len(out['abilities'])} models")
+        return
     kinds = args.features.split(",")
     for k in kinds:
         if k not in ("hand", "tfidf") and k not in extra:

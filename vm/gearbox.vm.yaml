@@ -11,7 +11,12 @@ tiers:
 
 leverage: 1
 risk_scaled_leverage: true
+start_floor: q4b      # never start on the 0.8B/2B: same accuracy, 2.8x faster on HumanEval+
 difficulty: heuristic
+# The learned router (bench/router_train.py): the 4B judge rates each task, and the cheapest
+# tier likely enough to pass is chosen. To use it, replace `difficulty: heuristic` with:
+#   difficulty: learned
+#   router_model: ../routers/judge-qwen3.5-4b.json
 max_concurrent: 4
 task_timeout_s: 600
 max_escalations: 4   # a failed check can climb the whole ladder (start cheap, escalate)
