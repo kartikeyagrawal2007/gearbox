@@ -170,7 +170,8 @@ The mode order rotates across repetitions. Models are warmed up, temperature is 
 | Same host, 768-token steps | 4B on GPU | 2 / 4 / 8 | 1.25 / 1.29 / 1.20× | 1.25 / 1.29 / 1.20 | 1.23 / 1.27 / 1.18× |
 | Emulated cloud host, 2 s + 40 tok/s, 256-token steps | 4B on GPU | 2 / 4 / 8 | 1.31 / 1.36 / 1.26× | 1.31 / 1.36 / 1.26 | 1.28 / 1.33 / 1.22× |
 | Same host, 768-token steps | 4B on GPU | 2 / 4 / 8 | 1.12 / 1.15 / 1.10× | 1.13 / 1.15 / 1.10 | 1.11 / 1.13 / 1.09× |
-| Qwen3.5 27B on the same GPU | 4B on GPU | 2 / 4 / 8 | 0.99 / **0.77 / 0.47×** | 1.31 / 1.30 / 1.25 | 0.96 / 0.77 / 0.46× |
+| Qwen3.5 27B on the same GPU, 32k contexts (GPU memory 98% full) | 4B on GPU | 2 / 4 / 8 | 0.99 / **0.77 / 0.47×** | 1.31 / 1.30 / 1.25 | 0.96 / 0.77 / 0.46× |
+| Same, 8k contexts (2.5 GB free) | 4B on GPU | 4 / 8 | 1.01 / 1.00× | 1.34 / 1.23 | — |
 | Qwen3.5 27B on GPU | 4B on CPU | 2 / 4 / 8 | 1.23 / 1.35 / 1.36× | 4.87 / 3.76 / 3.36 | 1.18 / 1.27 / 1.32× |
 
 **Finding 15: async reaches its predicted ceiling when host and workers don't share hardware.**
@@ -178,10 +179,11 @@ The mode order rotates across repetitions. Models are warmed up, temperature is 
 - Nearly all of the gain is the host not waiting (parallel → async). Workers running side by side add only 1.01–1.05×.
 - The gain is largest when the host's own steps are short relative to the work it delegates.
 
-**Finding 16: on a shared accelerator, async is harmful.**
-- With the 27B host and 4B workers on one GPU, async is 0.99× (k = 2), 0.77× (k = 4) and 0.47× (k = 8) of blocking speed. Both models stayed fully in GPU memory.
-- The two model processes slow each other far more than taking turns would. At k = 8, the host's own work grew from 70 s to 204 s and the workers' from 17 s to 141 s. Run in turn, they would need about 87 s in total; overlapped, they took 204 s.
-- Delegating at all still helps on one GPU. Delegating to the 4B was 1.42× faster than the 27B doing everything at k = 2, and burst delegation (parallel) is never slower than blocking.
+**Finding 16: on a shared accelerator, overlap buys nothing, and with little free memory it's harmful.**
+- **Little free memory.** With 32k-token contexts, the 27B host and 4B workers filled 98% of the GPU's memory. Async was 0.99× (k = 2), 0.77× (k = 4) and 0.47× (k = 8) of blocking speed. At k = 8, the host's own work grew from 70 s to 204 s and the workers' from 17 s to 141 s, far more than taking turns would cost (about 87 s in total). In a later run the 4B's server crashed outright (CUDA illegal memory access) while the two overlapped.
+- **The control: memory, not compute.** With 8k contexts (the same prompts fit easily), memory use fell to 90% and the slowdown disappeared: async was 1.01× (k = 4) and 1.00× (k = 8) of blocking, over 3 repetitions. That's still no gain, because the GPU's compute is shared, but no harm. The 2× slowdown came from memory pressure, plausibly the Windows display driver paging GPU memory to system RAM, not from the models competing for compute.
+- **Burst delegation is a free guard.** Gearbox's burst mode holds subtasks until the host waits. It was 1.00–1.01× of blocking with headroom, and it never overlaps the two models, so the memory failure can't occur.
+- **Delegating at all still helps on one GPU.** Delegating to the 4B was 1.42× faster than the 27B doing everything at k = 2.
 
 **Finding 17: a CPU worker frees the GPU but is too slow.** Async recovers 1.23–1.36× over blocking with the 4B on 36 CPU threads. But every delegating mode is slower than the 27B alone (0.52–0.89×), because the CPU runs the 4B at about one subtask per 26 s, and four parallel slots barely help.
 

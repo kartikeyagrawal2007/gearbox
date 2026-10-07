@@ -75,8 +75,8 @@ class GearboxConfig:
     # When delegated subtasks run (bench/async_bench.py, docs/paper/results.md 5.5):
     #   async  start at once, so the host keeps working: 1.1-1.6x faster with a cloud host
     #   burst  hold them until the host calls await_result, then run them together. Use it when
-    #          the host model shares the workers' GPU: overlapping there made episodes up to 2x
-    #          slower, while bursts were never slower than waiting for each subtask
+    #          the host model shares the workers' GPU: overlapping there gains nothing (1.00x) and,
+    #          with GPU memory nearly full, was up to 2x slower and crashed the model server
     #   auto   burst if host_model runs on the same Ollama server as a worker tier, else async
     delegation_mode: str = "auto"
     host_model: str | None = None  # the host agent's model, if known (from `host: {model: ...}`)

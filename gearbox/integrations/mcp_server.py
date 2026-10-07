@@ -29,7 +29,7 @@ briefs short.
 Flow: call `delegate`, which returns a task_id immediately. Continue with independent work, \
 then call `await_result` only when you need the output. If a delegate reply says mode "burst" \
 (your model shares the workers' GPU), subtasks wait until you call await_result, so delegate the \
-whole batch first, then await: overlapping on one GPU slows both sides down.
+whole batch first, then await: overlapping on one GPU gains nothing and can run it out of memory.
 Verify: for code, pass `check` (Python asserts or test_ functions). Gearbox runs it against the \
 worker's answer, escalates to a stronger tier if it fails, and reports `verified`. A thorough \
 check (10+ cases, or a loop over test data) lets Gearbox start on a cheaper model; a check with \
