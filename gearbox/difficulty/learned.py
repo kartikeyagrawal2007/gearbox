@@ -46,6 +46,10 @@ class RouterModel:
         self.mean, self.sd = data["rating_mean"], data["rating_sd"]
         self.intercept, self.slope = data["intercept"], data["slope"]
         self.abilities: dict[str, float] = data["abilities"]
+        # How much harder (+) or easier (-) your tasks are than the training benchmarks; fit it on
+        # ~30 labelled tasks (bench/router_train.py --export --fit-offset). Without it, the bar
+        # can be off on a new kind of task even though the ranking of tasks is right.
+        self.offset: float = data.get("offset", 0.0)
         self.trained_on: list[str] = data.get("trained_on", [])
 
     @classmethod
@@ -53,7 +57,7 @@ class RouterModel:
         return cls(json.loads(Path(path).expanduser().read_text()))
 
     def difficulty(self, rating: float) -> float:
-        return self.intercept + self.slope * (rating - self.mean) / self.sd
+        return self.intercept + self.slope * (rating - self.mean) / self.sd + self.offset
 
     def pass_prob(self, model: str, rating: float) -> float | None:
         a = self.abilities.get(model)

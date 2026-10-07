@@ -45,6 +45,8 @@ judge_tier: 0
 # difficulty: learned
 # router_model: routers/judge-qwen3.5-4b.json   # relative to this file
 # learned_tau: {none: 0.9, weak: 0.9, medium: 0.8, strong: 0.0}   # the bar, by check strength
+# On a different kind of task than coding benchmarks, label ~30 tasks and refit the file's offset
+# (bench/router_train.py --export ... --fit-offset <task set>); without it the bar can be off.
 max_concurrent: 4           # delegated subtasks running at once
 task_timeout_s: 600         # per attempt
 max_escalations: 1          # move up a tier on UNSURE / error / timeout / failed check.

@@ -74,3 +74,22 @@ def test_learned_config_loads_the_router_file(tmp_path):
     assert decision.tier_name in {"t2", "t3"}
     with pytest.raises(ValueError):
         make_config(difficulty="learned")  # no router_model
+
+
+def test_offset_makes_every_task_harder_or_easier():
+    harder = RouterModel({**MODEL, "offset": 1.0})
+    assert harder.pass_prob("fake/t2", 5) < RouterModel(MODEL).pass_prob("fake/t2", 5)
+    assert RouterModel(MODEL).offset == 0.0  # files without an offset still load
+
+
+def test_fit_offset_recovers_a_shift():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bench"))
+    import numpy as np
+    from router_train import fit_offset, sigmoid
+
+    rng = np.random.default_rng(0)
+    a, b = np.array([-1.0, 0.0, 1.0, 2.0]), rng.normal(size=400)
+    Y = (rng.random((400, 4)) < sigmoid(a[None] - b[:, None] - 0.8)).astype(float)  # tasks 0.8 harder
+    assert abs(fit_offset(a, b, Y) - 0.8) < 0.15

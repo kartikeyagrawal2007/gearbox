@@ -331,9 +331,11 @@ def render(rows: list[dict]) -> str:
     return "\n".join(out)
 
 
-def export(runs: Path, extra: dict, judge: str, path: Path) -> dict:
+def export(runs: Path, extra: dict, judge: str, path: Path, offset_on: str | None = None, n: int = 30,
+           seed: int = 0) -> dict:
     """Train the deployable router on every problem of both benchmarks and all recorded models,
-    with one judge's rating as the only feature, and write it for gearbox/difficulty/learned.py."""
+    with one judge's rating as the only feature, and write it for gearbox/difficulty/learned.py.
+    With offset_on, the offset is fitted on n random labelled problems of that task set."""
     from results import MODELS_CONFIG
 
     from gearbox.config import load_config
@@ -352,12 +354,84 @@ def export(runs: Path, extra: dict, judge: str, path: Path) -> dict:
         "rating_mean": float(mu[0]), "rating_sd": float(sd[0]),
         "intercept": float(tm.y0), "slope": float(tm.w[0]),
         "abilities": {by_name[m]: round(float(x), 4) for m, x in zip(models, a)},
+        "offset": 0.0,
         "trained_on": [f"{ts} ({SETS[ts]} problems)" for ts in SETS],
-        "note": "P(model solves task) = sigmoid(ability - (intercept + slope * (rating - mean) / sd))",
+        "note": "P(model solves task) = sigmoid(ability - (intercept + slope * (rating - mean) / sd) - offset)",
     }
+    if offset_on:
+        tgt = load_set(runs, offset_on)
+        cal = np.random.default_rng(seed).choice(len(tgt["ids"]), n, replace=False)
+        cal_ids = [tgt["ids"][i] for i in cal]
+        Yc = np.stack([tgt["passed"][t] for t in models], 1)[cal]
+        out["offset"] = round(fit_offset(a, tm.predict(cal_ids, [""] * n, [""] * n), Yc), 4)
+        out["offset_fitted_on"] = f"{n} labelled {offset_on} problems"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out, indent=2) + "\n")
     return out
+
+
+# --- Calibrating on a new kind of task -------------------------------------------------
+
+def fit_offset(abilities: np.ndarray, b_hat: np.ndarray, Y: np.ndarray) -> float:
+    """The difficulty shift delta that best explains labelled outcomes Y (problems x models)
+    under P = sigmoid(a - b_hat - delta): one number for "how much harder is this kind of task"."""
+    grid = np.linspace(-3, 3, 241)
+    def loglik(g):
+        p = np.clip(sigmoid(abilities[None, :] - b_hat[:, None] - g), 1e-9, 1 - 1e-9)
+        return float(np.sum(Y * np.log(p) + (1 - Y) * np.log(1 - p)))
+    return float(max(grid, key=loglik))
+
+
+def cheapest_tau(P: np.ndarray, Y: np.ndarray, costs: np.ndarray, target: float = 0.95) -> float:
+    """The cheapest bar whose accuracy reaches target x the top model's accuracy on (P, Y)."""
+    top = Y[:, -1].mean()
+    best_tau, best_cost = 0.99, None
+    for tau in np.round(np.arange(0.30, 0.991, 0.01), 2):
+        s = pick(P, tau)
+        if Y[np.arange(len(s)), s].mean() >= target * top and (best_cost is None or costs[s].mean() < best_cost):
+            best_tau, best_cost = float(tau), costs[s].mean()
+    return best_tau
+
+
+def calibration_study(data: dict, ladder, kinds, extra, judge_cost: float, ns=(10, 20, 30, 50),
+                      draws: int = 50) -> str:
+    """Train on one benchmark, label n problems of the other, fit the offset (or re-pick the
+    bar) on them, and score on the rest: quality as % of the top model, and how many times
+    cheaper than always using it, the judge's cost included."""
+    costs = np.array([params_b(t) for t in ladder])
+    lines = ["Calibrating on a new benchmark (judge cost included; mean over draws, worst draw in brackets)"]
+    for tr, te in (("humaneval+", "mbpp+"), ("mbpp+", "humaneval+")):
+        src, tgt = data[tr], data[te]
+        Ys = np.stack([src["passed"][t] for t in ladder], 1)
+        a, b = fit_irt(Ys)
+        tm = TextModel(kinds, extra).fit(src["ids"], [""] * len(src["ids"]), [""] * len(src["ids"]), b)
+        tau_src = cheapest_tau(sigmoid(a[None, :] - tm.predict(src["ids"], [""] * len(src["ids"]),
+                                                                 [""] * len(src["ids"]))[:, None]), Ys, costs)
+        ids = tgt["ids"]
+        Yt = np.stack([tgt["passed"][t] for t in ladder], 1)
+        bt = tm.predict(ids, [""] * len(ids), [""] * len(ids))
+        lines += ["", f"== train {tr} -> new benchmark {te} (bar from {tr}: {tau_src:.2f})",
+                  f"  {'method':<26} {'n':>3} {'quality':>16} {'x cheaper':>10}"]
+        rng = np.random.default_rng(1)
+        for n in (0, *ns):
+            res: dict[str, list] = {}
+            for _ in range(draws if n else 1):
+                cal = rng.choice(len(ids), n, replace=False) if n else np.array([], int)
+                rest = np.setdiff1d(np.arange(len(ids)), cal)
+                P0 = sigmoid(a[None, :] - bt[:, None])
+                options = {"no calibration": (P0, tau_src)}
+                if n:
+                    delta = fit_offset(a, bt[cal], Yt[cal])
+                    options["re-pick the bar"] = (P0, cheapest_tau(P0[cal], Yt[cal], costs))
+                    options["shift the scale (offset)"] = (sigmoid(a[None, :] - bt[:, None] - delta), tau_src)
+                for name, (P, tau) in options.items():
+                    s, Y = pick(P[rest], tau), Yt[rest]
+                    quality = Y[np.arange(len(s)), s].mean() / Y[:, -1].mean()
+                    res.setdefault(name, []).append((quality, costs[-1] / (costs[s].mean() + judge_cost)))
+            for name, v in res.items():
+                v = np.array(v)
+                lines.append(f"  {name:<26} {n:>3} {v[:, 0].mean():>8.1%} (>= {v[:, 0].min():.0%}) {v[:, 1].mean():>9.2f}x")
+    return "\n".join(lines)
 
 
 def load_extra(path: Path) -> dict:
@@ -377,12 +451,18 @@ def main() -> None:
     ap.add_argument("--json")
     ap.add_argument("--export", metavar="PATH", help="train the deployable router (one judge) and write it here")
     ap.add_argument("--judge", default="qwen3.5-4b", help="judge tier for --export")
+    ap.add_argument("--calibration-study", action="store_true",
+                    help="how well the router transfers to a new benchmark after labelling a few problems")
+    ap.add_argument("--fit-offset", metavar="TASK_SET",
+                    help="with --export: fit the difficulty offset on --n labelled problems of this task set")
+    ap.add_argument("--n", type=int, default=30, help="labelled problems for --fit-offset")
     args = ap.parse_args()
     runs = Path(args.runs)
     extra = load_extra(Path(args.features_file))
     if args.export:
-        out = export(runs, extra, args.judge, Path(args.export))
-        print(f"wrote {args.export}: judge {out['judge_model']}, {len(out['abilities'])} models")
+        out = export(runs, extra, args.judge, Path(args.export), args.fit_offset, args.n, args.seed)
+        print(f"wrote {args.export}: judge {out['judge_model']}, {len(out['abilities'])} models, "
+              f"offset {out['offset']:+.3f}")
         return
     kinds = args.features.split(",")
     for k in kinds:
@@ -390,6 +470,10 @@ def main() -> None:
             raise SystemExit(f"feature {k!r} not found; available: hand, tfidf, {', '.join(extra) or '(none)'}")
     data = {ts: load_set(runs, ts) for ts in SETS}
     ladder = make_ladder(args.ladder, data["humaneval+"]["passed"])
+    if args.calibration_study:
+        judge_cost = sum(params_b(k.split(":", 1)[1]) * 146 / 350 for k in kinds if k.startswith("judge"))
+        print(calibration_study(data, ladder, kinds, extra, judge_cost))
+        return
     rows = []
     for ts in SETS:
         P = predictions_cv(data[ts], ladder, kinds, extra, args.folds, args.seed)

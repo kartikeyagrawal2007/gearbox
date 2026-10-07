@@ -18,9 +18,10 @@
     "ollama_chat/qwen3.5:4b": 0.7219,
     "ollama_chat/qwen3.5:9b": 1.1667
   },
+  "offset": 0.0,
   "trained_on": [
     "humaneval+ (164 problems)",
     "mbpp+ (378 problems)"
   ],
-  "note": "P(model solves task) = sigmoid(ability - (intercept + slope * (rating - mean) / sd))"
+  "note": "P(model solves task) = sigmoid(ability - (intercept + slope * (rating - mean) / sd) - offset)"
 }
