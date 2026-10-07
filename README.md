@@ -6,6 +6,8 @@
 - **Doesn't wait.** `delegate()` returns at once; the host blocks only when it needs the result. Gearbox measures how much waiting that actually saved.
 - **Verifies, doesn't trust.** Cheap models say "done" when they're wrong and almost never say "unsure". Gearbox runs a check against each answer and escalates a failed one to a stronger tier, along with exactly what failed.
 
+> **What did we find? Read [REPORT.md](REPORT.md)**: did delegating to cheaper models work, and did it save time and tokens?
+>
 > **New here? Read [EXPLANATION.md](EXPLANATION.md).** It explains every part in plain language: the idea, the vocabulary, how a delegation flows through the code, the benchmarks, and what we've found.
 >
 > Status: research prototype (v0.1), the tool half of a paper on asynchronous, verified delegation to cheaper models. See [docs/paper/outline.md](docs/paper/outline.md) and [docs/lit-review.md](docs/lit-review.md).
