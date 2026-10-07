@@ -30,6 +30,7 @@ tiers:
 # The agent that calls Gearbox (Claude, Gemini, GPT inside your IDE). Only used to
 # estimate savings. Placeholder prices: set them to your host model's real ones.
 host:
+  # model: ollama_chat/qwen3.5:27b   # only if your host runs locally: on the workers' Ollama it turns on burst mode
   input_price: 3.0
   output_price: 15.0
   cache_read_price: 0.3
@@ -50,6 +51,7 @@ judge_tier: 0
 # (bench/router_train.py --export ... --fit-offset <task set>); without it the bar can be off.
 max_concurrent: 4           # delegated subtasks running at once
 task_timeout_s: 600         # per attempt
+delegation_mode: auto        # async (cloud host) | burst (host shares the workers' GPU) | auto (decide from host.model)
 max_escalations: 1          # move up a tier on UNSURE / error / timeout / failed check.
                             # With checks, use (number of tiers - 1) so a failure can climb the whole ladder.
 # Leverage for subtasks that come with a check, by how many cases the check tests (weak: 1-3,

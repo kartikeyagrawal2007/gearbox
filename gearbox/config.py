@@ -72,6 +72,16 @@ class GearboxConfig:
     # gearbox/verify/checks.py), so they are opt-in.
     code_checks: bool = False
     check_timeout_s: float = 20.0
+    # When delegated subtasks run (bench/async_bench.py, docs/paper/results.md 5.5):
+    #   async  start at once, so the host keeps working: 1.1-1.6x faster with a cloud host
+    #   burst  hold them until the host calls await_result, then run them together. Use it when
+    #          the host model shares the workers' GPU: overlapping there made episodes up to 2x
+    #          slower, while bursts were never slower than waiting for each subtask
+    #   auto   burst if host_model runs on the same Ollama server as a worker tier, else async
+    delegation_mode: str = "auto"
+    host_model: str | None = None  # the host agent's model, if known (from `host: {model: ...}`)
+    host_api_base: str | None = None
+    burst_max_wait_s: float = 30.0  # held subtasks start anyway if the host never awaits
 
     def __post_init__(self) -> None:
         if not self.tiers:
@@ -86,6 +96,8 @@ class GearboxConfig:
             raise ValueError(f"check_leverage keys must be among {CHECK_STRENGTHS}, got {sorted(unknown)}")
         if any(not isinstance(v, int) or v < 0 for v in self.check_leverage.values()):
             raise ValueError("check_leverage values must be integers >= 0")
+        if self.delegation_mode not in ("auto", "async", "burst"):
+            raise ValueError(f"delegation_mode must be auto, async or burst, got {self.delegation_mode!r}")
         if self.difficulty not in ("heuristic", "judge", "learned"):
             raise ValueError(f"unknown difficulty estimator {self.difficulty!r}")
         if self.difficulty == "learned" and not self.router_model:
@@ -105,6 +117,16 @@ class GearboxConfig:
         return len(self.tiers) - 1
 
     @property
+    def effective_delegation_mode(self) -> str:
+        if self.delegation_mode != "auto":
+            return self.delegation_mode
+        if self.host_model and self.host_model.startswith("ollama"):
+            host = _ollama_server(self.host_api_base)
+            if any(t.model.startswith("ollama") and _ollama_server(t.api_base) == host for t in self.tiers):
+                return "burst"
+        return "async"
+
+    @property
     def floor(self) -> int:
         return 0 if self.start_floor is None else self.tier_index(self.start_floor)
 
@@ -121,9 +143,18 @@ class GearboxConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> GearboxConfig:
         tiers = tuple(_tier_from_dict(t) for t in data.get("tiers", []))
-        host = _pricing_from_dict(data.get("host", {}))
+        host_data = data.get("host", {}) or {}
+        host = _pricing_from_dict(host_data)
         knobs = {k: v for k, v in data.items() if k not in ("tiers", "host")}
+        knobs.setdefault("host_model", host_data.get("model"))
+        knobs.setdefault("host_api_base", host_data.get("api_base"))
         return cls(tiers=tiers, host=host, **knobs)
+
+
+def _ollama_server(api_base: str | None) -> str:
+    """One name per Ollama server: no api_base means the default local one."""
+    base = (api_base or "http://localhost:11434").rstrip("/").lower()
+    return base.replace("127.0.0.1", "localhost").replace("0.0.0.0", "localhost")
 
 
 def _pricing_from_dict(d: dict[str, Any]) -> Pricing:

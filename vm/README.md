@@ -135,6 +135,12 @@ tmux new -d -s remote "cd ~/gearbox && while tmux has-session -t async 2>/dev/nu
 
 Check it with `tail -3 ~/async_remote.log`. The CPU Ollama isn't needed for this one.
 
+**e. Burst mode on the shared GPU.** This checks that Gearbox's burst mode removes the slowdown async causes when the 27B host and the 4B workers share the GPU:
+
+```text
+cd ~/gearbox && git pull -q && tmux new -d -s burst "cd ~/gearbox && .venv/bin/python -u bench/async_bench.py --workers qwen3.5-4b --k 4,8 --host-tokens 256 --reps 3 --modes blocking,async,burst --out runs/async_burst.jsonl 2>&1 | tee -a ~/burst.log"; sleep 5; tmux ls
+```
+
 ## Updating later
 
 ```text

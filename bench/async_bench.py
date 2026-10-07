@@ -15,6 +15,8 @@ tests must cover, capped at --host-tokens). The same episode runs in four modes:
   blocking   delegate a subtask, wait for it, do a host step; repeat
   parallel   delegate all subtasks, wait for all, then do the host steps
   async      delegate all subtasks, do the host steps meanwhile, then collect
+  burst      (opt in with --modes) Gearbox's burst mode: delegate all, the runtime holds them
+             while the host works, and runs them together once the host awaits
 
 blocking -> parallel isolates the gain from workers running side by side;
 parallel -> async isolates the gain from the host not waiting (the paper's claim).
@@ -57,6 +59,9 @@ from gearbox.delegate.runtime import DelegationRuntime
 from gearbox.providers import LiteLLMProvider, Provider, SimulatedProvider
 
 MODES = ("host_only", "blocking", "parallel", "async")
+# Gearbox's burst mode (gearbox/delegate/runtime.py): the same calls as async, but the runtime
+# holds the subtasks until the host awaits. Opt in with --modes; the default is the four above.
+ALL_MODES = (*MODES, "burst")
 CALL_PARAMS = {"temperature": 0}
 HOST_STEP = (
     "Another engineer is implementing the function below. List the edge cases a thorough test "
@@ -90,8 +95,8 @@ def parse_host(spec: str, config: GearboxConfig) -> Tier | RemoteHost:
     return config.tiers[config.tier_index(spec)]
 
 
-def modes_for(host: Tier | RemoteHost) -> tuple[str, ...]:
-    return MODES[1:] if isinstance(host, RemoteHost) else MODES
+def modes_for(host: Tier | RemoteHost, modes: tuple[str, ...] = MODES) -> tuple[str, ...]:
+    return tuple(m for m in modes if not (m == "host_only" and isinstance(host, RemoteHost)))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -126,7 +131,9 @@ class Timeline:
 
 async def run_episode(mode: str, episode: Episode, config: GearboxConfig, provider: Provider,
                       host: Tier | RemoteHost, worker: str, host_tokens: int) -> dict:
-    rt = DelegationRuntime(config, provider, call_params=CALL_PARAMS)
+    mode_config = dataclasses.replace(config, delegation_mode="burst" if mode == "burst" else "async",
+                                      burst_max_wait_s=1e9)  # burst: only an await releases the batch
+    rt = DelegationRuntime(mode_config, provider, call_params=CALL_PARAMS)
     tl = Timeline()
     host_out = 0
 
@@ -161,7 +168,7 @@ async def run_episode(mode: str, episode: Episode, config: GearboxConfig, provid
                 await tl.timed("blocked", rt.await_result(dt.id, timeout_s=None))
         for step in episode.host_steps:
             await tl.timed("work", host_step(step))
-        if mode == "async":
+        if mode in ("async", "burst"):
             for dt in tasks:
                 await tl.timed("blocked", rt.await_result(dt.id, timeout_s=None))
     wall = time.time() - tl.t0
@@ -252,7 +259,7 @@ async def run(args) -> None:
           f"GPU energy {'on' if meter.available else 'unavailable'}; writing {out}", flush=True)
 
     for host, worker, k, host_tokens, rep in conditions:
-        all_modes = modes_for(host)
+        all_modes = modes_for(host, tuple(args.modes.split(",")))
         modes = all_modes[rep % len(all_modes):] + all_modes[:rep % len(all_modes)]  # rotate: Latin square
         todo = [m for m in modes if (host.name, worker, k, host_tokens, rep, m) not in done]
         if not todo:
@@ -299,7 +306,7 @@ def summarize(records: list[dict]) -> str:
         groups.setdefault((r["host"], r["worker"], r["k"], r["host_tokens"]), {}).setdefault(r["rep"], {})[r["mode"]] = r
     lines = ["", "Speedups are medians over repetitions (min-max). ceiling = blocking wall / (wall - host blocked).",
              f"  {'host':<20} {'worker':<18} {'k':>2} {'h.tok':>5} {'reps':>4} {'host_only s':>11} {'async s':>8}"
-             f" {'blk/par':>12} {'par/async':>12} {'blk/async':>12} {'ceiling':>8} {'host_only/async':>16}"
+             f" {'blk/par':>12} {'par/async':>12} {'blk/async':>12} {'blk/burst':>12} {'ceiling':>8} {'host_only/async':>16}"
              f" {'same answers':>12} {'host GPU':>8} {'worker GPU':>10}"]
 
     def ratio(reps, a, b):
@@ -315,7 +322,7 @@ def summarize(records: list[dict]) -> str:
         ceilings = [m["blocking"]["wall_s"] / (m["blocking"]["wall_s"] - m["blocking"]["host_blocked_s"])
                     for m in reps if "blocking" in m and m["blocking"]["wall_s"] > m["blocking"]["host_blocked_s"]]
         # Delegating modes ran the same prompts at temperature 0; different outcomes mean different work.
-        same = sum(len({tuple(m[x]["outcomes"]) for x in ("blocking", "parallel", "async") if x in m}) == 1 for m in reps)
+        same = sum(len({tuple(m[x]["outcomes"]) for x in ("blocking", "parallel", "async", "burst") if x in m}) == 1 for m in reps)
         placements = [m["blocking"]["placement"] for m in reps if m.get("blocking", {}).get("placement")]
 
         def on_gpu(tier):
@@ -326,7 +333,8 @@ def summarize(records: list[dict]) -> str:
         lines.append(
             f"  {host:<20} {worker:<18} {k:>2} {ht:>5} {len(reps):>4} {'-' if ho is None else f'{ho:.1f}':>11} {'-' if asy is None else f'{asy:.1f}':>8}"
             f" {ratio(reps, 'blocking', 'parallel'):>12} {ratio(reps, 'parallel', 'async'):>12}"
-            f" {ratio(reps, 'blocking', 'async'):>12} {statistics.median(ceilings) if ceilings else 0:>8.2f}"
+            f" {ratio(reps, 'blocking', 'async'):>12} {ratio(reps, 'blocking', 'burst'):>12}"
+            f" {statistics.median(ceilings) if ceilings else 0:>8.2f}"
             f" {ratio(reps, 'host_only', 'async'):>16} {f'{same}/{len(reps)}':>12}"
             f" {on_gpu(host):>8} {on_gpu(worker):>10}"
         )
@@ -345,12 +353,17 @@ def main() -> None:
                     help="repetitions; a multiple of the mode count (4, or 3 for a remote host) balances mode order")
     ap.add_argument("--tasks", default="humaneval+", choices=sorted(EVALPLUS_SETS))
     ap.add_argument("--concurrency", type=int, default=4, help="worker calls at once (match OLLAMA_NUM_PARALLEL)")
+    ap.add_argument("--modes", default=",".join(MODES),
+                    help=f"comma-separated, from {', '.join(ALL_MODES)} (burst = Gearbox's burst mode)")
     ap.add_argument("--cooldown", type=float, default=0.0, help="seconds to pause between episodes")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="runs/async.jsonl")
     ap.add_argument("--simulate", action="store_true", help="fake models with fixed latencies (tests the harness)")
     ap.add_argument("--summary", metavar="JSONL", help="only print the summary of a results file")
     args = ap.parse_args()
+    unknown = set(args.modes.split(",")) - set(ALL_MODES)
+    if unknown:
+        ap.error(f"unknown modes {sorted(unknown)}; choose from {', '.join(ALL_MODES)}")
     if args.summary:
         print(summarize(load_records(Path(args.summary))))
     else:

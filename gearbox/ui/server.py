@@ -100,6 +100,7 @@ def create_app(
             "risk_scaled_leverage": config.risk_scaled_leverage,
             "difficulty": config.difficulty,
             "code_checks": config.code_checks,
+            "delegation_mode": config.effective_delegation_mode,
             "tiers": [
                 {"name": t.name, "model": t.model, "input_price": t.pricing.input, "output_price": t.pricing.output,
                  "available": avail.get(t.name)}

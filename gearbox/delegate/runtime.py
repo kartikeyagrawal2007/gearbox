@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections.abc import Callable, Coroutine
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 
@@ -29,6 +30,7 @@ from gearbox.verify.strength import check_strength
 
 
 class TaskState(str, Enum):
+    QUEUED = "queued"  # burst mode: held until the host awaits a result
     ROUTING = "routing"
     RUNNING = "running"
     DONE = "done"
@@ -113,6 +115,9 @@ class DelegationRuntime:
         self.router = router or Router.from_config(config, self.provider, self.ledger)
         self._tasks: dict[str, DelegatedTask] = {}
         self._slots = asyncio.Semaphore(config.max_concurrent)
+        self.mode = config.effective_delegation_mode  # "async" or "burst"
+        self._held: dict[str, Callable[[], Coroutine]] = {}  # burst mode: task id -> its job, not started
+        self._release_timer: asyncio.Task | None = None
 
     def delegate(
         self,
@@ -152,11 +157,34 @@ class DelegationRuntime:
             check=check.strip(),
         )
         timeout = timeout_s or self.config.task_timeout_s
-        dt.job = asyncio.get_running_loop().create_task(
-            self._run(dt, messages, risk, forced, leverage, timeout), name=f"gearbox-{dt.id}"
-        )
         self._tasks[dt.id] = dt
+        job = lambda: self._run(dt, messages, risk, forced, leverage, timeout)  # noqa: E731
+        if self.mode == "burst":
+            dt.state = TaskState.QUEUED
+            self._held[dt.id] = job
+            if self._release_timer is None:
+                self._release_timer = asyncio.get_running_loop().create_task(self._release_later())
+        else:
+            dt.job = asyncio.get_running_loop().create_task(job(), name=f"gearbox-{dt.id}")
         return dt
+
+    def release(self) -> int:
+        """Burst mode: start every held subtask now. Returns how many were started."""
+        held, self._held = self._held, {}
+        if self._release_timer is not None and self._release_timer is not asyncio.current_task():
+            self._release_timer.cancel()
+        self._release_timer = None
+        loop = asyncio.get_running_loop()
+        for task_id, job in held.items():
+            dt = self._tasks[task_id]
+            dt.state = TaskState.ROUTING
+            dt.job = loop.create_task(job(), name=f"gearbox-{task_id}")
+        return len(held)
+
+    async def _release_later(self) -> None:
+        """Burst mode's safety net: a host that never awaits still gets its results."""
+        await asyncio.sleep(self.config.burst_max_wait_s)
+        self.release()
 
     async def run(self, task: str, **kwargs) -> DelegatedTask:
         """Blocking delegation: the synchronous baseline."""
@@ -177,6 +205,8 @@ class DelegationRuntime:
         """Wait up to `timeout_s` (None = forever). Returns the task view, finished or not."""
         dt = self._get(task_id)
         dt.awaited = True
+        if self._held:  # burst: the host is waiting now, so the GPU is free for the whole batch
+            self.release()
         if dt.job is not None and not dt.job.done():
             start = time.perf_counter()
             await asyncio.wait({dt.job}, timeout=timeout_s)
@@ -185,6 +215,9 @@ class DelegationRuntime:
 
     def cancel(self, task_id: str) -> bool:
         dt = self._get(task_id)
+        if self._held.pop(task_id, None) is not None:
+            dt.state, dt.finished_at, dt.error = TaskState.CANCELLED, time.time(), "cancelled before it started"
+            return True
         if dt.job is None or dt.job.done():
             return False
         return dt.job.cancel()
@@ -197,6 +230,7 @@ class DelegationRuntime:
         blocked = sum(t.blocked_s for t in finished)
         return {
             **self.ledger.summary(),
+            "delegation_mode": self.mode,
             "async": {
                 "awaited_tasks": len(finished),
                 "worker_run_s": round(run, 3),

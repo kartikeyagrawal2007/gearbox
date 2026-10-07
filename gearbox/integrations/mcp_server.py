@@ -27,7 +27,9 @@ transforming data.
 Everything you write into `task` and `context` is billed as your own output tokens, so keep \
 briefs short.
 Flow: call `delegate`, which returns a task_id immediately. Continue with independent work, \
-then call `await_result` only when you need the output.
+then call `await_result` only when you need the output. If a delegate reply says mode "burst" \
+(your model shares the workers' GPU), subtasks wait until you call await_result, so delegate the \
+whole batch first, then await: overlapping on one GPU slows both sides down.
 Verify: for code, pass `check` (Python asserts or test_ functions). Gearbox runs it against the \
 worker's answer, escalates to a stronger tier if it fails, and reports `verified`. A thorough \
 check (10+ cases, or a loop over test data) lets Gearbox start on a cheaper model; a check with \
@@ -97,7 +99,9 @@ async def delegate(
     with caller_errors():
         rt = runtime()
         dt = rt.delegate(task, context=context, acceptance=acceptance, risk=risk, tier=tier, check=check)
-        reply = {"task_id": dt.id, "state": dt.state.value, "next": "continue other work; call await_result when needed"}
+        reply = {"task_id": dt.id, "state": dt.state.value, "mode": rt.mode,
+                 "next": "continue other work; call await_result when needed" if rt.mode == "async" else
+                 "delegate the rest of the batch, then call await_result: subtasks start when you wait"}
         if expected_output_tokens:
             # Priced against the cheapest tier; routing may pick a higher one.
             estimate = break_even(rt.config.host, rt.config.tiers[0].pricing, dt.brief_tokens, expected_output_tokens)
