@@ -130,7 +130,7 @@ class Timeline:
 
 
 async def run_episode(mode: str, episode: Episode, config: GearboxConfig, provider: Provider,
-                      host: Tier | RemoteHost, worker: str, host_tokens: int) -> dict:
+                      host: Tier | RemoteHost, worker: str, host_tokens: int, host_timeout: float = 300.0) -> dict:
     mode_config = dataclasses.replace(config, delegation_mode="burst" if mode == "burst" else "async",
                                       burst_max_wait_s=1e9)  # burst: only an await releases the batch
     rt = DelegationRuntime(mode_config, provider, call_params=CALL_PARAMS)
@@ -143,7 +143,8 @@ async def run_episode(mode: str, episode: Episode, config: GearboxConfig, provid
             await asyncio.sleep(host.seconds(host_tokens))
             host_out += host_tokens
             return
-        c = await provider.complete(host, [{"role": "user", "content": prompt}], max_tokens=host_tokens, **CALL_PARAMS)
+        c = await provider.complete(host, [{"role": "user", "content": prompt}], max_tokens=host_tokens,
+                                    timeout=host_timeout, **CALL_PARAMS)
         host_out += c.output_tokens
 
     def delegate(t: Task, tier: str):
@@ -274,7 +275,12 @@ async def run(args) -> None:
             if mode not in todo:
                 continue
             with meter.span() as energy:
-                record = await run_episode(mode, episode, config, provider, host, worker, host_tokens)
+                try:
+                    record = await run_episode(mode, episode, config, provider, host, worker, host_tokens,
+                                               args.host_timeout)
+                except Exception as e:  # a stuck or failed model call: keep the run going, flag the episode
+                    record = {"mode": mode, "wall_s": None, "host_blocked_s": None, "outcomes": [],
+                              "error": f"{type(e).__name__}: {e}"[:300]}
             record.update({
                 "host": host.name, "worker": worker, "k": k, "host_tokens": host_tokens, "rep": rep,
                 "order": position, "problems": [t.name for t in episode.subtasks],
@@ -299,9 +305,18 @@ def load_records(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
+def valid(r: dict) -> bool:
+    """An episode counts only if it finished and every subtask got an answer: a worker error or
+    timeout means less work was done, which would make that mode look faster than it is."""
+    return not r.get("error") and r.get("wall_s") is not None and all(
+        o in ("ok", "check_failed", "unsure") for o in r.get("outcomes", []))
+
+
 def summarize(records: list[dict]) -> str:
     """Per condition: median speedups over repetitions, paired within each repetition."""
     groups: dict[tuple, dict[int, dict[str, dict]]] = {}
+    skipped = [r for r in records if not valid(r)]
+    records = [r for r in records if valid(r)]
     for r in records:
         groups.setdefault((r["host"], r["worker"], r["k"], r["host_tokens"]), {}).setdefault(r["rep"], {})[r["mode"]] = r
     lines = ["", "Speedups are medians over repetitions (min-max). ceiling = blocking wall / (wall - host blocked).",
@@ -338,6 +353,9 @@ def summarize(records: list[dict]) -> str:
             f" {ratio(reps, 'host_only', 'async'):>16} {f'{same}/{len(reps)}':>12}"
             f" {on_gpu(host):>8} {on_gpu(worker):>10}"
         )
+    if skipped:
+        lines.append(f"\n  {len(skipped)} episode(s) left out (a failed or timed-out model call): "
+                     + ", ".join(f"{r.get('worker')} k={r.get('k')} rep={r.get('rep')} {r['mode']}" for r in skipped))
     return "\n".join(lines)
 
 
@@ -355,6 +373,7 @@ def main() -> None:
     ap.add_argument("--concurrency", type=int, default=4, help="worker calls at once (match OLLAMA_NUM_PARALLEL)")
     ap.add_argument("--modes", default=",".join(MODES),
                     help=f"comma-separated, from {', '.join(ALL_MODES)} (burst = Gearbox's burst mode)")
+    ap.add_argument("--host-timeout", type=float, default=300.0, help="seconds before a host step counts as stuck")
     ap.add_argument("--cooldown", type=float, default=0.0, help="seconds to pause between episodes")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="runs/async.jsonl")
