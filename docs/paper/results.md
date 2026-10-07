@@ -1,6 +1,6 @@
 # Draft: Results (§5)
 
-*Draft 2, 2026-10-07.* Every number below comes from the A5000 runs in `runs/`. Each subsection names the script that reproduces it. Intervals are 95% Wilson. Paired comparisons use McNemar's exact test on per-problem outcomes (`bench/stats.py`). We ran 20 paired tests, so treat p-values between 0.0025 and 0.05 as exploratory: only p < 0.0025 survives a Bonferroni correction.
+*Draft 2.1, 2026-10-07: §5.4 corrected to a fair router evaluation.* Every number below comes from the A5000 runs in `runs/`. Each subsection names the script that reproduces it. Intervals are 95% Wilson. Paired comparisons use McNemar's exact test on per-problem outcomes (`bench/stats.py`). We ran 20 paired tests, so treat p-values between 0.0025 and 0.05 as exploratory: only p < 0.0025 survives a Bonferroni correction.
 
 Setup common to all sections:
 - Open models served by Ollama 0.35.1 at 4-bit quantization, on one RTX A5000 (24 GB).
@@ -118,28 +118,35 @@ The router uses item response theory, as in IRT-Router (`bench/router_train.py`)
 | 27B judge, three samples averaged | 0.73–0.75 |
 | All three judges | 0.72–0.74 |
 | Judge asked for a pass probability (0–100) | 0.43–0.72 (worse than rating) |
+| RouteLLM BERT router (off the shelf; see Finding 13) | 0.43–0.63 |
 
 With true difficulties, the same model reaches 0.93–0.96. **The bottleneck is reading the problem, not the routing model.**
 
-**Finding 12: the judge is cheap in time but not free in compute, so the smallest judge wins.**
+**Finding 12: per-problem routing saves nothing on code once it's measured fairly.** Two things inflate router savings, and an earlier draft of this section fell for both: choosing the bar after seeing the test answers, and comparing against "always use the strongest model".
+- **The fair baseline is random mixing.** Any quality between two fixed models is reachable with no router at all, by sending a random share of tasks to each. A router must be cheaper than that mix *at the same quality*.
+- **The fair protocol** (`bench/router_fair.py`) picks the bar on training folds only, averages over 10 splits, and includes the router's own compute (its parameters × the ~146 tokens it reads).
+
+| Router (one shot, no check) | HumanEval+ at 85 / 90 / 95% of the 27B's quality | MBPP+ at 85 / 90 / 95% |
+|---|---|---|
+| Qwen3.5 4B judge | 0.51 / 0.82 / 0.99× | 0.72 / 0.77 / 1.03× |
+| RouteLLM BERT (off the shelf) | 0.70 / 1.01 / 1.27× | 0.93 / 0.90 / 0.92× |
+
+The table shows cost relative to random mixing; above 1 means the router is cheaper. Inside weak-check cascades the result is the same: on HumanEval+, both routers land at 0.52–1.08× of a fixed starting model plus mixing (`--check "1 test"`).
+
+The judge does predict which problems a model will solve (Finding 11), so why doesn't it save anything?
+- **Its own cost.** A 4B judge reading every task costs 1.7 of our cost units, against 4–27 per answer.
+- **Its mistakes fall where they matter.** On code, the gap between adjacent models is a few hard problems. AUC 0.67 can't find them reliably enough to beat a coin flip weighted by price.
+
+This matches the routing literature's own caveat that routers barely beat random on hard benchmarks without in-domain data. RouteLLM's routers were near random on GSM8K and MMLU until augmented.
+
+**Finding 13: an off-the-shelf chat router doesn't transfer to code correctness.** RouteLLM's BERT router (trained on Chatbot Arena preferences between GPT-4 and Mixtral) scores 0.43–0.63 AUC on our problems, below 0.5 on MBPP+ cross-validation. That's no better than surface text features. "Would a person prefer the strong model's chat answer?" and "will a small model's code pass hidden tests?" are different questions.
+
+**Finding 14: the judge is cheap in time, and its bar must be recalibrated on new kinds of task.**
 - Measured one call at a time, the judge reads about 144 tokens and writes 2: 0.12 s (4B), 0.14 s (9B), 0.36 s (27B). That's about 1–3% of a worker's answer time.
-- But counting the judge's compute, at a single answer with no check and at ≥95% of the 27B's accuracy:
-  - The **4B judge** is 1.26× (HumanEval+) and 1.58× (MBPP+) cheaper than always using the 27B.
-  - The 27B judge saves nothing (0.85–1.06×), and three judges together cost more than they save (0.78–0.90×).
-- For comparison, RouteLLM reports 1.41× (MMLU, 92% of GPT-4 quality) and 1.49× (GSM8K, 87%) on its hard benchmarks, with near-free routers. The setups differ: two models vs our five-tier ladder, and dollars vs parameters.
+- Trained on one benchmark, its ranking transfers to the other (AUC holds), but its bar drifts in opposite directions: too cheap HumanEval+ → MBPP+, too cautious MBPP+ → HumanEval+.
+- Fitting one offset on 20–30 labelled problems of the new kind restores the target quality (94–97%) over 50 random draws (`bench/router_train.py --calibration-study`).
 
-**Finding 13: on a new kind of task the ranking transfers, but the bar must be recalibrated.**
-- Trained on one benchmark, the router still ranks the other's problems well (AUC holds), but its bar is off in opposite directions:
-  - HumanEval+ → MBPP+ lands at 88.8% of the 27B's quality, missing the 95% target.
-  - MBPP+ → HumanEval+ lands at 98.7% but saves almost nothing (1.05×).
-- Labelling 20–30 problems of the new kind and fitting one offset (how much harder these tasks are) restores the target: 94–97% quality at 1.4–1.6× cheaper, judge included, over 50 random draws.
-- Re-picking the bar on the same labels is less stable: its worst draw falls to 53–76% quality.
-
-**Finding 14: with a strong check, the router adds little; without one, it helps on HumanEval+ only.**
-- With the full suite, a cascade from the 4B (95.7%, 20.7 s) is as good as starting where the router says (94.5%, 23.6 s).
-- With a 1-test check or no check, the router matches a fixed-model mix's accuracy at 26–35% lower cost on HumanEval+, but gives no gain on MBPP+.
-
-Gearbox's `difficulty: learned` mode ships the 4B-judge router (`routers/judge-qwen3.5-4b.json`), with the bar set by check strength.
+**What we ship.** Gearbox's practical gains come from the start floor and from check-and-escalate, not from per-problem routing. The learned mode (`difficulty: learned`, `routers/judge-qwen3.5-4b.json`) stays in the tool as an experimental option, with the evidence above.
 
 ## 5.5 Asynchronous delegation (RQ1)
 

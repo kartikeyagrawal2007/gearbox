@@ -60,7 +60,7 @@ Follow one request through the code. Say Claude Code calls Gearbox's `delegate` 
    - The score maps to a base tier.
    - **Leverage** shifts it up: +0, +1 or +2 for low, medium or high risk, plus 1 more if the estimate was unsure.
    - **A floor** (`start_floor`) stops it starting on a tiny model: they're slow and usually wrong, so on HumanEval+ starting at the 4B gave the same accuracy as starting at the 0.8B in 2.8× less time.
-   - **The learned router** (`difficulty: learned`) replaces the guess: a 4B judge rates the task 1–10 (a few tokens), a model trained on our 542 problems × 12 models (`routers/judge-qwen3.5-4b.json`) turns that into each tier's pass chance, and the cheapest tier over a bar is picked. The bar depends on the check: 0.9 with no or a weak check, 0.8 with a medium one, and with a strong check it starts at the floor because escalation catches the misses.
+   - **The learned router** (`difficulty: learned`, experimental: measured fairly it saves nothing over the floor plus checks on code) replaces the guess: a 4B judge rates the task 1–10 (a few tokens), a model trained on our 542 problems × 12 models (`routers/judge-qwen3.5-4b.json`) turns that into each tier's pass chance, and the cheapest tier over a bar is picked. The bar depends on the check: 0.9 with no or a weak check, 0.8 with a medium one, and with a strong check it starts at the floor because escalation catches the misses.
    - **With a check, leverage comes from the check's strength instead** (`gearbox/verify/strength.py` counts its test cases): weak (1–3) +2, medium (4–9) +1, strong (10+, or a loop over test data) +0, plus the risk level. A failed check escalates anyway, so leverage only has to cover the wrong answers the check lets through. This is the weak-check finding, built into the tool.
 4. **The brief**: `gearbox/delegate/brief.py`. The worker receives a short instruction (system prompt + subtask + "done when" + the check, if it's meant to be visible). It doesn't get the host's whole conversation, which keeps it cheap.
 5. **The model call**: `gearbox/providers.py`, `LiteLLMProvider.complete`. It talks to the model through LiteLLM, with a timeout. A concurrency limit stops too many calls at once.
@@ -120,6 +120,9 @@ bench/                    benchmarks (not part of the installed package)
   async_bench.py          the async delegation experiment: four modes, repeated, two placements
   router_train.py         the learned router: predicts which models solve a problem (IRT), assigns the cheapest
   router_features.py      collects judge ratings and embeddings for the learned router (lab GPU)
+  router_fair.py          the fair test: does a router beat randomly mixing fixed models at equal quality?
+  routellm_baseline.py    RouteLLM's BERT router as a baseline (needs the `baselines` extra)
+  stats.py                95% intervals and paired tests for the paper's numbers
 routers/                  trained learned-router files (judge-qwen3.5-4b.json)
 vm/                       setting up and using the A5000 lab machine
   setup_wsl.sh            one-shot setup inside WSL Ubuntu (Ollama, Python, tests)
@@ -232,8 +235,7 @@ From HumanEval+ and MBPP+ on the A5000 (details in `docs/paper/results.md`):
 - **Leverage compensates for a weak check.** Starting the cascade at the 4B instead of the 0.8B restores 82% at cost 5.2 with a 1-test check. So leverage should scale with **how weak the check is**, not how hard the prompt looks.
 - **Async works when host and workers don't share hardware.** An emulated cloud host with workers on the A5000: 1.1–1.6× faster than blocking, reaching the predicted ceiling. Host and workers on the same GPU: up to 2× *slower* (they slow each other down far more than taking turns). Workers on the CPU: async helps (1.2–1.4×), but the CPU is too slow to be worth it.
 - **Don't start on tiny models.** Starting the cascade at the 4B instead of the 0.8B: same accuracy, 2.8× less time on HumanEval+ (1.6× on MBPP+).
-- **Calibrate on a new kind of task.** Trained on one benchmark, the guesser still ranks the other's problems well, but its bar is off (too cheap on one, too cautious on the other). Labelling 20–30 problems of the new kind and fitting one number (an *offset*: how much harder these tasks are) brings it back to about 95% of the 27B's quality at 1.4–1.6× lower cost, judge included (`bench/router_train.py --calibration-study`).
-- **The guesser needs a judge.** Text features can't predict which model solves a problem (AUC ~0.55); a 4B–27B model *reading* the problem can (0.72–0.74 with three judges, and it transfers between benchmarks). It saves 14–35% cost or time when the check is weak or missing; with a strong check, starting at the 4B is already about as good.
+- **The guesser predicts, but doesn't save.** Text features can't predict which model solves a problem (AUC ~0.55), and neither can RouteLLM's off-the-shelf chat router (0.43–0.63). A 4B–27B judge *reading* the problem can (0.67–0.74). But measured fairly, against randomly mixing two fixed models at the same quality with the bar chosen without peeking, no router saves anything on code (0.5–1.3×, `bench/router_fair.py`). An earlier version of this file overstated it. The real savings come from the start floor and from check-and-escalate.
 
 ---
 

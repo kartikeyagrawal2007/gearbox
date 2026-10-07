@@ -39,7 +39,8 @@ risk_scaled_leverage: true  # low/medium/high risk -> +0/+1/+2, plus 1 more when
 difficulty: heuristic       # heuristic (free) | judge (a cheap tier rates difficulty) | learned (below)
 judge_tier: 0
 # start_floor: my-small-tier  # never start below this tier; tiny models are slow and usually wrong
-# The learned router: a judge tier rates each task 1-10 and a trained model (bench/router_train.py
+# EXPERIMENTAL: the learned router. Measured fairly it doesn't beat a good start_floor plus checks on
+# code (docs/paper/results.md, finding 12). A judge tier rates each task 1-10 and a trained model (bench/router_train.py
 # --export) turns that into a pass chance per tier; the cheapest tier over the bar is chosen.
 # It only knows the models it was trained on (routers/judge-qwen3.5-4b.json: 12 local models).
 # difficulty: learned

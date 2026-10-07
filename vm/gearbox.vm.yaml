@@ -13,6 +13,7 @@ leverage: 1
 risk_scaled_leverage: true
 start_floor: q4b      # never start on the 0.8B/2B: same accuracy, 2.8x faster on HumanEval+
 difficulty: heuristic
+# Experimental, not better than start_floor + checks on code (docs/paper/results.md, finding 12).
 # The learned router (bench/router_train.py): the 4B judge rates each task, and the cheapest
 # tier likely enough to pass is chosen. To use it, replace `difficulty: heuristic` with:
 #   difficulty: learned
