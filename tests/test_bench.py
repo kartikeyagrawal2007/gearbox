@@ -242,3 +242,18 @@ def test_text_model_learns_from_an_informative_feature():
     extra = {"judge:x": {i: float(v) for i, v in zip(ids, y)}}  # a perfect judge
     tm = TextModel(["judge:x"], extra).fit(ids, [""] * 30, ["f"] * 30, y)
     assert _np.corrcoef(tm.predict(ids, [""] * 30, ["f"] * 30), y)[0, 1] > 0.99
+
+
+# --- Agreement check (bench/agreement.py) ---
+
+from agreement import agree, behaviour  # noqa: E402
+
+
+def test_behaviour_captures_returns_and_exceptions_and_agreement_compares_them():
+    inputs = [(1,), (0,)]
+    same_a = asyncio.run(behaviour("def f(x):\n    return 10 // x", "f", inputs))
+    same_b = asyncio.run(behaviour("```python\ndef f(y):\n    return 10 // y\n```", "f", inputs))
+    differs = asyncio.run(behaviour("def f(x):\n    return 10 // (x or 1)", "f", inputs))
+    assert same_a == ("10", "EXC:ZeroDivisionError") and agree([same_a, same_b])
+    assert not agree([same_a, differs])
+    assert asyncio.run(behaviour("def g(): pass", "f", inputs)) == ("LOAD:KeyError",) * 2

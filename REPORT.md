@@ -156,8 +156,37 @@ Good research shows its mistakes. Ours, each caught and corrected:
 
 **What it means for the paper:** the story is *"cheap models are safe workers when you check their work; async helps only when boss and workers don't share hardware; per-task routing doesn't pay on code."* That fits a workshop paper or TMLR. Top conferences would want more benchmarks and a real cloud boss.
 
-## 7. What's left
-1. **A real cloud boss:** about 30 runs with a real API model as the boss, to confirm the simulated results. Needs a free Gemini API key.
-2. **Figures** for the paper.
-3. **Writing the paper's remaining sections,** then arXiv (needs an endorser) and TMLR.
-4. *(Optional)* A third benchmark, to show the findings hold beyond Python functions.
+## 7. Where the project is weak, and what would fix it
+
+Ranked by how much each gap limits what we can claim.
+
+**Research gaps (what a reviewer will attack):**
+
+| # | Gap | Why it matters | Fix |
+|---|---|---|---|
+| 1 | **No real agent in the loop.** The cloud boss is simulated by timing, and no real agent session (Claude Code, Antigravity) was measured | The headline time and token claims rest on an emulation | Run real sessions: a free Gemini key as the boss, or Claude Code on a real repo task, with and without Gearbox |
+| 2 | **Only one kind of task:** single Python functions (HumanEval+, MBPP+) | Real subtasks span files, need context, or aren't code | Add a multi-file or test-writing benchmark |
+| 3 | **The cost of writing briefs is unmeasured.** The boss must describe each subtask, and that costs tokens | The "about half the tokens" saving ignores it | Measure briefs in real sessions (gap 1 gives this for free) |
+| 4 | **Weak checks were simulated** by taking a few of the hidden tests | Real boss-written tests may catch more or less | Have a model write the tests, then measure how many wrong answers they catch |
+| 5 | **Cost is a stand-in** (model size × answers), not dollars or energy | Fine for comparisons, weak for "saves money" | The async runs already recorded GPU energy (joules), so report it |
+| 6 | One machine, 4-bit models, one answer per problem | Limits generality | Repeat key results on another GPU or a cloud API |
+
+**Tool gaps (what a user will hit):**
+
+| # | Gap | Fix |
+|---|---|---|
+| 7 | **Security.** Checks run model-written code with best-effort isolation. On Linux the network is blocked, but the code **can still read your files**. macOS's sandbox tool is deprecated. The dashboard has no login (it's only reachable from your machine) | Run checks in a container or bubblewrap with a read-only filesystem; add a token to the dashboard. *(Planned security pass)* |
+| 8 | **Context costs the boss tokens:** it must paste everything a worker needs into the brief | Pass context by reference: file paths the worker can read, or a memory tool like Waggle |
+| 9 | **Workers have no tools:** they can't open files or run their own code | Let workers read listed files and retry against the check themselves |
+| 10 | **Checks are Python only** | Add a runner per language (JS, Go, shell) |
+| 11 | **Not packaged:** no LICENSE file, no automatic tests on GitHub, not on PyPI | Add them, then publish `uvx gearbox-mcp` and list it in the MCP registry |
+| 12 | Tasks are lost when the server restarts; placement detection only knows Ollama | Persist tasks to disk; detect other local servers (vLLM, llama.cpp) |
+
+**Most valuable next: gap 1.** It turns the strongest simulated claims into measured ones, and it also closes gap 3.
+
+## 8. What's left
+1. **The agreement check** (in progress): escalate when a cheap model's own sampled answers disagree on sample inputs. It needs no test at all, which is where routing failed (`bench/sample_answers.py` on the lab PC, then `bench/agreement.py`).
+2. **A real cloud boss:** about 30 runs with a real API model as the boss, to confirm the simulated results. Needs a free Gemini API key.
+3. **Figures** for the paper.
+4. **Writing the paper's remaining sections,** then arXiv (needs an endorser) and TMLR.
+5. *(Optional)* A third benchmark, to show the findings hold beyond Python functions.
