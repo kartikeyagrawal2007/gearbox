@@ -51,15 +51,7 @@ def test_bad_input_is_a_400_with_reason():
         assert res.status_code == 400 and "unknown tier" in res.json()["error"]
         res = client.post("/api/route", json={"prompt": "x", "risk": "extreme"})
         assert res.status_code == 400
-        assert client.get("/api/race/missing").status_code == 400
-
-
-def test_race_endpoint_runs_to_completion():
-    with make_client() as client:
-        race_id = client.post("/api/race", json={"subtasks": ["a"], "host_steps": ["x"]}).json()["race_id"]
-        snap = wait_for(client, f"/api/race/{race_id}", lambda d: d["status"] in ("done", "failed"))
-        assert snap["status"] == "done"
-        assert snap["speedup"] is not None
+        assert client.get("/api/episode/missing").status_code == 400
 
 
 def test_simulated_mode_needs_no_backend():
@@ -144,7 +136,7 @@ def test_cannot_use_a_model_that_is_not_downloaded():
             res = client.post("/api/delegate", json={"task": "x", "tier": "big"})
             assert res.status_code == 400 and "not downloaded yet" in res.json()["error"]
             assert "ollama pull qwen3.5:27b" in res.json()["error"]
-            res = client.post("/api/race", json={"host_tier": "big", "worker_tier": "small"})
+            res = client.post("/api/episode", json={"subtasks": [{"task": "x"}], "host_tier": "big"})
             assert res.status_code == 400
             assert client.post("/api/delegate", json={"task": "x", "tier": "small"}).status_code == 200
     finally:

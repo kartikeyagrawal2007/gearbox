@@ -37,7 +37,6 @@ The research paper measures both. The code is the tool that does it, and the ben
 | **Escalation** | When an answer fails, retry on the next stronger tier, showing it what went wrong. |
 | **Format failure** | The answer didn't even contain the requested function (an output-formatting problem, not wrong logic). |
 | **Fence repair** | Fixing broken ```` ``` ```` code markers so the code can be extracted. |
-| **Race** | Our experiment: the same workload run blocking, then async, with measured timelines. |
 | **Speedup ceiling** | The best async can possibly do: `total time ÷ (total time − time the host spent waiting)`. |
 | **Ledger** | The record of every model call: tokens, cost, time. |
 | **MCP** | Model Context Protocol, the standard way agents (Claude Code etc.) call external tools. Gearbox is an MCP server. |
@@ -104,7 +103,6 @@ gearbox/                  the installable Python package
   verify/strength.py      how strong a check is (counts its test cases), which sets its leverage
   providers.py            LiteLLM (real models) and a SimulatedProvider (fake, for demos)
   cost/                   ledger.py, breakeven.py (is delegating worth it?), energy.py (GPU joules)
-  race.py                 the dashboard's small blocking-vs-async demo
   episode.py              one boss episode (delegate, own work, collect), recorded for the live view
   runs.py                 reads benchmark result files (used by dashboard, results, plots)
   integrations/mcp_server.py   the MCP tools: route, delegate, await_result, status, cancel, ledger
@@ -123,7 +121,7 @@ vm/                       setting up and using the A5000 lab machine
   demo.vm.yaml            the dashboard demo: the Qwen3.5 ladder with the learned router on
   README.md               step-by-step lab instructions
 docs/                     lit-review.md (the go/no-go check), related-work.md, paper/ (outline, results, figures)
-tests/                    132 automated tests: run them with `.venv/bin/python -m pytest -q`
+tests/                    128 automated tests: run them with `.venv/bin/python -m pytest -q`
 ```
 
 **Two configs, two jobs.**
@@ -160,22 +158,14 @@ tests/                    132 automated tests: run them with `.venv/bin/python -
 
 ---
 
-## 7. The race (async vs blocking)
+## 7. Async, burst, and how we measure them
 
-`gearbox/race.py` runs one workload twice: the host's own steps plus some delegated subtasks.
+**The experiment is `bench/async_bench.py`.** Three safeguards keep it fair, each added after it bit us:
+1. **Warm-up first.** Without it, the first mode measured pays the model-loading time.
+2. **Temperature 0, and a check that the modes did the same work.** If they made different calls (e.g. one escalated), the result isn't a speedup.
+3. **The speedup ceiling.** Async can only remove time the host spent waiting: `wall / (wall − host blocked)`, computed from the blocking run.
 
-- **Blocking**: delegate → wait → do a host step → delegate → wait…
-- **Async**: delegate everything → do all host steps → collect the results.
-
-Both make **the same model calls**, so any time difference comes from overlapping work. Three safeguards keep it fair, each added after it bit us:
-
-1. **Warm-up first.** Without it, the first phase pays the model-loading time.
-2. **Temperature 0, plus a comparability check.** If the phases still made different calls (e.g. one escalated), the result is reported as "not comparable" rather than as a speedup.
-3. **The speedup ceiling.** Async can only remove time the host spent waiting.
-
-On your Mac (one GPU, both models on it) async gave about 1.0×, against a ceiling of about 1.09×. There was little waiting to remove, and the models slowed each other down.
-
-The race is the dashboard's demo. **The paper's experiment is `bench/async_bench.py`**, which runs one episode (k HumanEval+ subtasks plus k host steps) in four modes:
+It runs one episode (k HumanEval+ subtasks plus k host steps) in four modes:
 
 | Mode | What the host does |
 |---|---|
@@ -228,7 +218,7 @@ On your Mac (from `~/code/gearbox`):
 ```bash
 .venv/bin/python -m pytest -q                       # all tests
 .venv/bin/gearbox ui --simulate                      # dashboard with fake models (safe on a laptop)
-.venv/bin/python bench/plots.py docs/paper/data      # regenerate figures
+.venv/bin/python bench/plots.py                      # regenerate figures from runs/
 ```
 
 On the VM, inside WSL (`cd ~/gearbox`):

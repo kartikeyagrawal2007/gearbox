@@ -4,12 +4,12 @@ A host model (the expensive agent) hands subtasks to cheaper models and keeps wo
 Where things live:
   config.py       the tier ladder (cheapest -> strongest model) and settings, from YAML
   router.py       picks a tier from a difficulty estimate plus "leverage" (a safety margin)
-  difficulty/     difficulty estimators: a free heuristic and a cheap-model judge
+  difficulty/     difficulty estimators: a free heuristic, a cheap-model judge, a trained router
   delegate/       running a delegation in the background: routing, retries, escalation, checks
   verify/         executable checks that decide whether an answer really works
   providers.py    talking to models (LiteLLM: Ollama, Anthropic, OpenAI, Gemini, ...)
   cost/           ledger of tokens and money, break-even rule, GPU energy meter
-  race.py         blocking vs async delegation on the same workload, with timelines
+  episode.py      one boss episode (delegate, own work, collect), recorded for the dashboard
   runs.py         reading benchmark result files
   integrations/   the MCP server, for agents like Claude Code and Antigravity
   ui/             the local web dashboard

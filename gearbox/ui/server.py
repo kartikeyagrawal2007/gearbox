@@ -1,5 +1,5 @@
-"""Local web dashboard: delegate subtasks, watch routing and runs live, race
-blocking vs async delegation, and browse benchmark results. Serves on localhost
+"""Local web dashboard: watch a batch get routed, handed off, run, checked and returned;
+delegate single subtasks; and browse benchmark results. Serves on localhost
 only; there is no auth."""
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from gearbox.runs import load_runs
 from gearbox.delegate.runtime import DelegationRuntime
 from gearbox.providers import Provider, SimulatedProvider
 from gearbox.episode import Episode
-from gearbox.race import Race
 
 STATIC = Path(__file__).parent / "static"
 Handler = Callable[[Request], Awaitable[JSONResponse]]
@@ -74,9 +73,8 @@ def create_app(
         if simulated and provider is None:
             provider = SimulatedProvider([t.name for t in config.tiers])
         runtime = DelegationRuntime(config, provider)
-    races: dict[str, Race] = {}
     episodes: dict[str, Episode] = {}
-    background: set[asyncio.Task] = set()  # keep references so race tasks aren't garbage-collected
+    background: set[asyncio.Task] = set()  # keep references so episode tasks aren't garbage-collected
     runs_path = Path(runs_dir)
 
     async def availability() -> dict[str, bool | None]:
@@ -142,28 +140,6 @@ def create_app(
         return JSONResponse(runtime.stats())
 
     @caller_errors
-    async def start_race(request: Request) -> JSONResponse:
-        body = await request.json() if await request.body() else {}
-        await require_downloaded(body.get("host_tier") or None, body.get("worker_tier") or None)
-        race = Race(
-            config,
-            runtime.provider,
-            subtasks=body.get("subtasks") or None,
-            host_steps=body.get("host_steps") or None,
-            host_tier=body.get("host_tier") or None,
-            worker_tier=body.get("worker_tier") or None,
-        )
-        races[race.id] = race
-        job = asyncio.get_running_loop().create_task(race.run())
-        background.add(job)
-        job.add_done_callback(background.discard)
-        return JSONResponse({"race_id": race.id})
-
-    @caller_errors
-    async def get_race(request: Request) -> JSONResponse:
-        return JSONResponse(races[request.path_params["race_id"]].snapshot())
-
-    @caller_errors
     async def start_episode(request: Request) -> JSONResponse:
         body = await request.json()
         await require_downloaded(body.get("host_tier") or None)
@@ -190,8 +166,6 @@ def create_app(
         Route("/api/tasks", tasks),
         Route("/api/tasks/{task_id}/cancel", cancel, methods=["POST"]),
         Route("/api/ledger", ledger),
-        Route("/api/race", start_race, methods=["POST"]),
-        Route("/api/race/{race_id}", get_race),
         Route("/api/runs", runs),
         Route("/api/episode", start_episode, methods=["POST"]),
         Route("/api/episode/{episode_id}", get_episode),

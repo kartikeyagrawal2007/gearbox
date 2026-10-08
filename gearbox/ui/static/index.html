@@ -114,13 +114,9 @@
   .axis span { position: absolute; transform: translateX(-50%); }
   .chip.missing { opacity: .55; border-style: dashed; }
   .chip.missing small::after { content: " · not downloaded"; }
-  .race-pick { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 10px; }
-  .race-pick > div { min-width: 180px; }
   .rate { display: inline-block; width: 70px; height: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; vertical-align: middle; margin-right: 6px; }
   .rate > i { display: block; height: 100%; background: var(--worker); }
   td.bad { color: var(--bad); font-weight: 600; }
-  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 14px; flex-wrap: wrap; }
-  .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   .verdict { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
   .verdict.neutral { background: var(--bg); color: var(--text); font-weight: 400; }
   /* Watch a delegation */
@@ -241,26 +237,6 @@
     <div id="tasks" class="tasks"><div class="empty">No subtasks yet. Delegate one above.</div></div>
   </section>
 
-  <section class="card wide" aria-labelledby="h-race">
-    <h2 id="h-race">Race: blocking vs async <span class="hint">same model calls, two schedules, measured timelines</span></h2>
-    <div class="race-pick">
-      <div><label for="race-host">Host (expensive model)</label><select id="race-host"></select></div>
-      <div><label for="race-worker">Worker (cheap model)</label><select id="race-worker"></select></div>
-    </div>
-    <div id="race-err" class="err" role="alert"></div>
-    <div class="actions" style="margin-top:0">
-      <button class="btn primary" id="btn-race">Run race</button>
-      <span id="race-msg" class="muted"></span>
-    </div>
-    <details id="workload"><summary>Workload</summary><div id="workload-body"></div></details>
-    <div id="race"></div>
-    <div class="legend">
-      <span><i style="background:var(--host-soft)"></i>host working</span>
-      <span><i style="border:1px dashed var(--host)"></i>host blocked, waiting</span>
-      <span><i style="background:var(--worker-soft);border:1px solid var(--worker)"></i>cheap worker</span>
-      <span><i style="background:var(--warn-soft);border:1px solid var(--warn)"></i>unsure / timeout</span>
-    </div>
-  </section>
 
   <section class="card wide" aria-labelledby="h-bench">
     <h2 id="h-bench">Benchmark results <span class="hint">latest result per model and task set, from the runs folder</span></h2>
@@ -332,10 +308,6 @@ function renderTiers() {
   const ready = CONFIG.tiers.filter(usable);
   const opts = CONFIG.tiers.map(t => [t.name, `${t.name} · ${modelName(t)}${usable(t) ? '' : ' (not downloaded)'}`, !usable(t)]);
   // Defaults: the largest downloaded model hosts, the smallest works.
-  fillSelect($('race-host'), opts, $('race-host').value || (ready.at(-1) || {}).name);
-  fillSelect($('race-worker'), opts, $('race-worker').value || (ready[0] || {}).name);
-  $('btn-race').disabled = ready.length === 0 || raceTimer !== null;
-  $('race-err').textContent = ready.length ? '' : 'No models downloaded yet for this config.';
 }
 
 function setRisk(v) {
@@ -438,7 +410,7 @@ function renderLedger(l) {
     ['Subtasks succeeded', `${l.delegated_tasks_succeeded} / ${l.delegated_tasks}`],
     ['Host overlap', a.overlap_ratio == null ? 'n/a' : Math.round(a.overlap_ratio * 100) + '%'],
   ];
-  $('stats').replaceChildren(...tiles.map(([k, v]) => h('div', { class: 'stat', title: k === 'Host overlap' ? 'Share of worker run time the host spent on other work. Only counts results the host waited for (via MCP await_result or a race); the dashboard itself never waits.' : null }, h('div', { class: 'v' }, v), h('div', { class: 'k' }, k))));
+  $('stats').replaceChildren(...tiles.map(([k, v]) => h('div', { class: 'stat', title: k === 'Host overlap' ? 'Share of worker run time the host spent on other work. Only counts results the host waited for (via MCP await_result or a batch run); the dashboard itself never waits.' : null }, h('div', { class: 'v' }, v), h('div', { class: 'k' }, k))));
   const rows = Object.entries(l.by_tier || {});
   $('tier-table').replaceChildren(
     h('thead', {}, h('tr', {}, h('th', {}, 'Tier'), h('th', { class: 'n' }, 'Calls'), h('th', { class: 'n' }, 'In tok'), h('th', { class: 'n' }, 'Out tok'), h('th', { class: 'n' }, 'Cost'),
@@ -449,41 +421,6 @@ function renderLedger(l) {
       : h('tr', {}, h('td', { colspan: 6, class: 'muted' }, 'No calls yet'))));
   $('assumptions').textContent = l.savings_assumptions || '';
   $('assumptions').title = l.savings_assumptions || '';
-}
-
-let raceTimer = null;
-['race-host', 'race-worker'].forEach(id => $(id).addEventListener('change', () => { $('race-err').textContent = ''; }));
-$('btn-race').addEventListener('click', async () => {
-  const host_tier = $('race-host').value, worker_tier = $('race-worker').value;
-  if (!host_tier || !worker_tier) { $('race-err').textContent = 'Pick a downloaded host and worker first.'; return; }
-  if (host_tier === worker_tier) { $('race-err').textContent = 'Pick two different models: the race compares an expensive host with a cheaper worker.'; return; }
-  $('race-err').textContent = '';
-  $('btn-race').disabled = true;
-  try {
-    const { race_id } = await api('/api/race', { host_tier, worker_tier });
-    $('race-msg').textContent = 'Running blocking first, then async…';
-    const tick = async () => {
-      const r = await api('/api/race/' + race_id);
-      if (r.status === 'warming up') $('race-msg').textContent = 'Loading models first, so neither phase pays the cold start…';
-      else if (r.status === 'running') $('race-msg').textContent = r.phases.async.started ? 'Running async…' : 'Running blocking…';
-      renderRace(r);
-      if (r.status === 'done' || r.status === 'failed') {
-        clearInterval(raceTimer); raceTimer = null; $('btn-race').disabled = false;
-        $('race-msg').textContent = r.status === 'failed' ? 'Race failed: ' + r.error : 'Finished.';
-      }
-    };
-    raceTimer = setInterval(tick, 400); tick();
-  } catch (e) { $('race-msg').textContent = e.message; $('btn-race').disabled = false; }
-});
-
-// Concurrent worker spans get their own rows so they never draw on top of each other.
-function packRows(spans) {
-  const rows = [];
-  for (const s of [...spans].sort((a, b) => a.start - b.start)) {
-    const row = rows.find(r => r[r.length - 1].end <= s.start + 0.01);
-    row ? row.push(s) : rows.push([s]);
-  }
-  return rows.length ? rows : [[]];
 }
 
 async function pollBench() {
@@ -519,49 +456,6 @@ async function pollBench() {
 function niceMax(x) {
   const steps = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 600];
   return steps.find(s => s >= x) || Math.ceil(x / 60) * 60;
-}
-
-function renderRace(r) {
-  $('workload-body').replaceChildren(
-    h('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' }, `Host tier: ${r.host_tier} · worker tier: ${r.worker_tier}`),
-    h('div', { style: 'font-size:13px;margin-top:6px' }, h('b', {}, 'Delegated subtasks'), h('ol', {}, r.subtasks.map(s => h('li', {}, s)))),
-    h('div', { style: 'font-size:13px' }, h('b', {}, 'Host’s own steps'), h('ol', {}, r.host_steps.map(s => h('li', {}, s)))));
-  const phases = [r.phases.blocking, r.phases.async];
-  const scale = niceMax(Math.max(1, ...phases.map(p => p.wall_s)));
-  const pct = (t) => `${Math.min(100, (t / scale) * 100)}%`;
-  const bar = (s, cls, text) => h('div', {
-    class: `bar ${cls}${s.open ? ' open' : ''}`,
-    style: `left:${pct(s.start)};width:${pct(Math.max(0.05, s.end - s.start))}`,
-    title: `${text} · ${fmtS(s.end - s.start)}`,
-  }, text);
-  const out = phases.map(p => h('div', { class: 'phase' },
-    h('div', { class: 'phase-head' }, h('b', {}, p.mode === 'blocking' ? 'Blocking' : 'Async'),
-      h('span', { class: 'muted' }, p.started ? `wall ${fmtS(p.wall_s)}${p.done ? '' : ' so far'} · host blocked ${fmtS(p.host_blocked_s)}` : 'waiting to start')),
-    h('div', { class: 'lane' }, h('span', { class: 'name' }, `host · ${r.host_tier}`),
-      h('div', { class: 'track' }, p.host.filter(s => s.end - s.start > 0.02 || s.open).map(s =>
-        bar(s, s.kind, s.kind === 'blocked' ? 'waiting' : s.label)))),
-    ...packRows(p.workers).map((row, i) => h('div', { class: 'lane' },
-      h('span', { class: 'name' }, i === 0 ? `worker · ${r.worker_tier}` : ''),
-      h('div', { class: 'track' }, row.map(s => bar(s, `worker ${s.outcome}`, s.label)))))));
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => h('span', { style: `left:${f * 100}%` }, fmtS(f * scale)));
-  out.push(h('div', { class: 'axis' }, ticks));
-  if (r.speedup != null) {
-    const b = r.phases.blocking, a = r.phases.async;
-    const blocked = `Host blocked ${fmtS(a.host_blocked_s)} instead of ${fmtS(b.host_blocked_s)}`;
-    const ceiling = r.speedup_ceiling == null ? '' : ` The most async could have gained here was ${r.speedup_ceiling}×: it can only remove the ${fmtS(b.host_blocked_s)} the host spent waiting out of ${fmtS(b.wall_s)}.`;
-    const shared = 'The host stopped waiting, but if the models share one device (one GPU, or a backend that serves one request at a time), overlapped calls slow each other down and total time barely moves. That contention is itself a result worth reporting.';
-    if (r.comparable === false) {
-      out.push(h('div', { class: 'verdict neutral' }, `Not comparable: the phases made different worker calls (blocking ${b.worker_calls}, async ${a.worker_calls}), so ${r.speedup}× is not a speedup. The cheap model answered differently between runs (e.g. UNSURE → escalation in one phase only). Run again; calls use temperature 0, but local backends can still vary.`));
-      $('race').replaceChildren(...out);
-      return;
-    }
-    out.push(r.speedup >= 1.2
-      ? h('div', { class: 'verdict' }, `Async finished ${r.speedup}× faster (${fmtS(a.wall_s)} vs ${fmtS(b.wall_s)}) with the same model calls. ${blocked}.${ceiling}`)
-      : h('div', { class: 'verdict neutral' }, r.speedup >= 1.05
-        ? `Async was only ${r.speedup}× faster (${fmtS(a.wall_s)} vs ${fmtS(b.wall_s)}), small enough to be run-to-run noise. ${blocked}.${ceiling} ${shared}`
-        : `No real speedup (${r.speedup}×). ${blocked}.${ceiling} ${shared}`));
-  }
-  $('race').replaceChildren(...out);
 }
 
 const EP_PRESET = [
