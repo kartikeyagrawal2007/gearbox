@@ -104,25 +104,13 @@ gearbox/                  the installable Python package
   verify/strength.py      how strong a check is (counts its test cases), which sets its leverage
   providers.py            LiteLLM (real models) and a SimulatedProvider (fake, for demos)
   cost/                   ledger.py, breakeven.py (is delegating worth it?), energy.py (GPU joules)
-  race.py                 blocking vs async experiment with timelines
+  race.py                 the dashboard's small blocking-vs-async demo
+  episode.py              one boss episode (delegate, own work, collect), recorded for the live view
   runs.py                 reads benchmark result files (used by dashboard, results, plots)
   integrations/mcp_server.py   the MCP tools: route, delegate, await_result, status, cancel, ledger
   ui/                     the dashboard: server.py (API) and static/index.html (the page)
   cli.py                  the `gearbox` command (tiers, route, run, serve, ui)
-bench/                    benchmarks (not part of the installed package)
-  false_done.py           the benchmark runner: every task × every model → JSON in runs/
-  tasksets.py             the task sets: smoke (8), humaneval+ (164), humaneval+mini, mbpp+ (378)
-  evalplus_compat.py      EvalPlus's grading code, copied verbatim (do not edit)
-  results.py              prints the results table in a terminal (and --export for copying)
-  plots.py                makes the paper figures
-  routing_sim.py          replays recorded answers under routing strategies (no GPU needed)
-  weak_checks.py          the cascade with weaker checks, and leverage as a start tier (no GPU needed)
-  async_bench.py          the async delegation experiment: four modes, repeated, two placements
-  router_train.py         the learned router: predicts which models solve a problem (IRT), assigns the cheapest
-  router_features.py      collects judge ratings and embeddings for the learned router (lab GPU)
-  router_fair.py          the fair test: does a router beat randomly mixing fixed models at equal quality?
-  routellm_baseline.py    RouteLLM's BERT router as a baseline (needs the `baselines` extra)
-  stats.py                95% intervals and paired tests for the paper's numbers
+bench/                    the experiments behind every number (not installed): see bench/README.md
 routers/                  trained learned-router files (judge-qwen3.5-4b.json)
 vm/                       setting up and using the A5000 lab machine
   setup_wsl.sh            one-shot setup inside WSL Ubuntu (Ollama, Python, tests)
@@ -132,8 +120,10 @@ vm/                       setting up and using the A5000 lab machine
   gearbox.vm.yaml         the Qwen3.5 ladder (for routing experiments)
   async.vm.yaml           host and worker tiers for the async experiment, on GPU and CPU
   ollama_cpu.sh           a second, CPU-only Ollama (port 11435) for the worker-on-CPU placement
+  demo.vm.yaml            the dashboard demo: the Qwen3.5 ladder with the learned router on
+  README.md               step-by-step lab instructions
 docs/                     lit-review.md (the go/no-go check), related-work.md, paper/ (outline, results, figures)
-tests/                    121 automated tests: run them with `.venv/bin/python -m pytest -q`
+tests/                    132 automated tests: run them with `.venv/bin/python -m pytest -q`
 ```
 
 **Two configs, two jobs.**
@@ -220,24 +210,14 @@ Each of these changed a headline number before it was caught. They make a good "
 
 ---
 
-## 9. What we've found so far
+## 9. What we've found
 
-From HumanEval+ and MBPP+ on the A5000 (details in `docs/paper/results.md`):
-
-- **Bigger is more reliable, with a plateau.** Qwen3.5 0.8B → 27B: 23% → 93% solved, false-done 70% → 7%. The 4B and 9B are about equal.
-- **Models almost never say "unsure".** Across 11 current models only the 0.8B ever did (8 times), while being wrong on 70% of what it claimed. "Escalate when the worker asks for help" can't work, so **checks are necessary**.
-- **The escape hatch didn't help anyone**, and it hurt the smallest model.
-- **Vendor rankings don't transfer between benchmarks.** Granite 8B led HumanEval+ (87%), but on MBPP+ it tied with Gemma 12B and Qwen 9B (71–72%).
-- **Code specialization beats size at the low end.** An older 0.5B coder (55%) beat Qwen3.5 0.8B and 2B.
-- **Formatting can decide the score.** 38 of Ministral 8B's answers needed fence repair.
-- **MBPP+ repeats the main findings:** reliability rises with size, only the 0.8B ever says unsure, and even the 27B claims "done" on 21% wrong answers.
-- **Start cheap, check, escalate** beats always using the 27B on accuracy and cost, *if the check is perfect*: 95.7% at about a third of the cost on HumanEval+ (`bench/routing_sim.py`).
-- **Our difficulty heuristic has no signal.** It does no better than assigning the same tiers at random.
-- **The cascade is only as good as its check** (`bench/weak_checks.py`). With a 1-test check, wrong answers slip through and HumanEval+ accuracy drops to 62%.
-- **Leverage compensates for a weak check.** Starting the cascade at the 4B instead of the 0.8B restores 82% at cost 5.2 with a 1-test check. So leverage should scale with **how weak the check is**, not how hard the prompt looks.
-- **Async works when host and workers don't share hardware.** An emulated cloud host with workers on the A5000: 1.1–1.6× faster than blocking, reaching the predicted ceiling. Host and workers on the same GPU: no gain (1.00×) when there's free GPU memory, and up to 2× *slower*, even crashing, when the two models nearly fill it (32k contexts, 98% full). A rerun at 8k contexts proved the cause was memory, not compute. Burst mode avoids the overlap entirely. Workers on the CPU: async helps (1.2–1.4×), but the CPU is too slow to be worth it.
-- **Don't start on tiny models.** Starting the cascade at the 4B instead of the 0.8B: same accuracy, 2.8× less time on HumanEval+ (1.6× on MBPP+).
-- **The guesser predicts, but doesn't save.** Text features can't predict which model solves a problem (AUC ~0.55), and neither can RouteLLM's off-the-shelf chat router (0.43–0.63). A 4B–27B judge *reading* the problem can (0.67–0.74). But measured fairly, against randomly mixing two fixed models at the same quality with the bar chosen without peeking, no router saves anything on code (0.5–1.3×, `bench/router_fair.py`). An earlier version of this file overstated it. The real savings come from the start floor and from check-and-escalate.
+All the results, with numbers, are in **[REPORT.md](REPORT.md)** (plain language) and **[docs/paper/results.md](docs/paper/results.md)** (17 findings, with intervals and tests). In one breath:
+- checking plus escalation beats the biggest model at about a third of the compute
+- don't start on tiny models: 2.8× faster for the same accuracy
+- leverage should follow how strong the check is
+- async helps only when boss and workers don't share hardware
+- picking a model per task up front doesn't pay on code
 
 ---
 
@@ -247,7 +227,7 @@ On your Mac (from `~/code/gearbox`):
 
 ```bash
 .venv/bin/python -m pytest -q                       # all tests
-.venv/bin/gearbox ui --simulate                      # dashboard with fake models
+.venv/bin/gearbox ui --simulate                      # dashboard with fake models (safe on a laptop)
 .venv/bin/python bench/plots.py docs/paper/data      # regenerate figures
 ```
 
@@ -258,6 +238,7 @@ On the VM, inside WSL (`cd ~/gearbox`):
 .venv/bin/python bench/results.py --export           # one-line summary to copy to the Mac
 tmux ls                                              # is a background run still going?
 tmux attach -t bench                                 # watch it (leave with Ctrl+B then D)
+.venv/bin/gearbox --config vm/demo.vm.yaml ui        # the live demo with real models, at http://localhost:8790
 ```
 
 Running a benchmark (VM):
@@ -272,6 +253,4 @@ Useful options: `--tasks mbpp+`, `--hatch off`, `--tiers qwen3.5-4b gemma3-4b`, 
 
 ## 11. What's next
 
-1. **Run the async experiment on the lab PC** (`vm/README.md`, section 6). It decides how the paper is framed.
-2. Statistics (confidence intervals, paired tests) and the `docs/paper/results.md` update.
-3. Write the paper (`docs/paper/outline.md`), post it to arXiv, then submit to TMLR.
+See **[ROADMAP.md](ROADMAP.md)**: what's built, what's missing (ranked), and the next steps.
