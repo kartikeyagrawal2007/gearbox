@@ -48,6 +48,21 @@ The research paper measures both. The code is the tool that does it, and the ben
 
 ---
 
+### The four schedules, side by side
+
+Think of the boss as a manager with assistants. The **same batch** of work can be scheduled four ways (the dashboard's "Schedule" buttons, `gearbox/episode.py`):
+
+| Schedule | What the boss does | Who writes the subtask answers | When it wins |
+|---|---|---|---|
+| **Do it all yourself** (host only) | Writes every answer itself, then does its own work | the expensive boss | never, on cost: it's the baseline |
+| **Wait for each** (blocking) | Hands off one subtask, waits for it, does a bit of its own work, hands off the next | cheap workers, one at a time | simplest; saves tokens but no time from overlap |
+| **Keep working** (async) | Hands off everything at once, keeps working, collects at the end | cheap workers, all at once | the boss runs **elsewhere** (a cloud model): 1.1–1.6× faster than blocking |
+| **Work first, then run all** (burst) | Hands off everything, but the workers only start when the boss stops to wait | cheap workers, all at once | the boss **shares the workers' GPU**: they never compete for it |
+
+**Auto** picks burst when the boss runs on the same GPU as the workers, and async otherwise. Two things to keep apart:
+- **Tokens saved depend on *who* writes the answers.** That's the same in all three delegating schedules, and zero for "do it all yourself".
+- **Time depends on *when* things run.** That's what differs between blocking, async and burst.
+
 ## 3. What happens when a subtask is delegated
 
 Follow one request through the code. Say Claude Code calls Gearbox's `delegate` tool with *"Write tests for parse_date"*, risk `low`, and a check.

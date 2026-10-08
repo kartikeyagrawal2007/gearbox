@@ -182,10 +182,11 @@
     <div class="ep-controls">
       <div><label for="ep-preset">Batch</label><select id="ep-preset"></select></div>
       <div><label for="ep-host">Boss (expensive model)</label><select id="ep-host"></select></div>
-      <div><label id="ep-mode-label">When workers run</label><div class="seg" id="ep-mode" role="group" aria-labelledby="ep-mode-label"></div></div>
+      <div><label id="ep-mode-label">Schedule</label><div class="seg" id="ep-mode" role="group" aria-labelledby="ep-mode-label"></div></div>
       <button class="btn primary" id="btn-episode">Run the batch</button>
       <span id="ep-msg" class="muted"></span>
     </div>
+    <p id="ep-mode-help" class="muted" style="font-size:13px;margin:8px 0 0"></p>
     <details id="ep-edit"><summary>Change the subtasks, their tests, or the boss's own work</summary>
       <label for="ep-subtasks">Subtasks, one JSON object per line: {"task": ..., "check": ...}</label>
       <textarea id="ep-subtasks" class="mono" style="min-height:120px"></textarea>
@@ -488,7 +489,14 @@ const EP_PRESETS = {
 const EP_STEPS = ["In three sentences, plan the module these functions belong to.", "List the edge cases the module's integration tests must cover."];
 let epMode = 'auto', epTimer = null, epPreset = 'tested';
 const epHistory = [];
-const MODE_LABEL = { blocking: 'Wait for each (blocking)', async: 'Keep working (async)', burst: 'Work first, then run all (burst)', auto: 'Auto' };
+const MODE_LABEL = { host_only: 'Do it all yourself', blocking: 'Wait for each (blocking)', async: 'Keep working (async)', burst: 'Work first, then run all (burst)', auto: 'Auto' };
+const MODE_HELP = {
+  host_only: 'No delegation: the boss writes every answer itself. The baseline the others should beat.',
+  blocking: 'The boss hands off one subtask, waits until it comes back, does a bit of its own work, then hands off the next.',
+  async: 'The boss hands off every subtask at once and keeps working while they run. Best when the boss runs elsewhere (a cloud model).',
+  burst: 'The boss hands off every subtask, but they only start when the boss stops to wait, then all run together. Best when the boss shares the workers\' GPU.',
+  auto: 'Gearbox picks: burst if the boss runs on the same GPU as the workers, async otherwise.',
+};
 
 function setupEpisode() {
   fillSelect($('ep-host'), CONFIG.tiers.filter(usable).map(t => [t.name, `${t.name} (${modelName(t)})`]),
@@ -496,9 +504,11 @@ function setupEpisode() {
   $('ep-host').value = CONFIG.tiers[CONFIG.tiers.length - 1].name;
   fillSelect($('ep-preset'), Object.entries(EP_PRESETS).map(([k, [label]]) => [k, label]), epPreset);
   $('ep-preset').onchange = () => { epPreset = $('ep-preset').value; loadPreset(); };
-  $('ep-mode').replaceChildren(...['blocking', 'async', 'burst', 'auto'].map(v => [v, MODE_LABEL[v]]).map(([v, l]) =>
+  $('ep-mode').replaceChildren(...['host_only', 'blocking', 'async', 'burst', 'auto'].map(v => [v, MODE_LABEL[v]]).map(([v, l]) =>
     h('button', { type: 'button', 'data-v': v, class: v === epMode ? 'on' : '', onclick: () => {
-      epMode = v; $('ep-mode').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); } }, l)));
+      epMode = v; $('ep-mode-help').textContent = MODE_HELP[v];
+      $('ep-mode').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); } }, l)));
+  $('ep-mode-help').textContent = MODE_HELP[epMode];
   loadPreset();
   $('ep-steps').value = EP_STEPS.join('\n');
   $('btn-episode').onclick = runEpisode;
@@ -511,6 +521,7 @@ function loadPreset() {
 function storyOf(e) {
   const s = e.summary, n = e.tasks.length, waited = fmtS(s.host_blocked_s), total = fmtS(e.elapsed_s);
   const how = {
+    host_only: `The boss did everything itself: it wrote all ${n} answers, then its own work. Nothing was delegated, so nothing was saved.`,
     blocking: `The boss handed off one subtask at a time and waited for each before going on: ${waited} of the ${total} was spent waiting.`,
     async: `The boss handed off all ${n} subtasks and kept working while they ran, then waited ${waited} at the end.`,
     burst: `The boss did its own work first; the ${n} subtasks were held, then ran together while it waited ${waited}.`,
@@ -527,14 +538,14 @@ function renderHistory() {
   for (const r of epHistory) if (!fastest.has(r.batch) || r.total < fastest.get(r.batch)) fastest.set(r.batch, r.total);
   $('ep-history').replaceChildren(h('div', { class: 'ep-hist' },
     h('h3', {}, 'Your runs'),
-    h('div', { class: 'muted', style: 'font-size:13px' }, 'Run the same batch with different settings for "When workers run" to compare. The fastest run of each batch is in bold.'),
+    h('div', { class: 'muted', style: 'font-size:13px' }, 'Run the same batch with each schedule to compare. "Boss wrote" is how many tokens the expensive model produced. The fastest run of each batch is in bold.'),
     h('table', {},
-      h('thead', {}, h('tr', {}, ['#', 'Batch', 'When workers ran', 'Total', 'Boss waited', 'Verified', 'Escalations', 'Tokens saved', 'What happened']
-        .map((c, i) => h('th', { class: i >= 3 && i <= 7 ? 'n' : '' }, c)))),
+      h('thead', {}, h('tr', {}, ['#', 'Batch', 'Schedule', 'Total', 'Boss waited', 'Boss wrote', 'Verified', 'Escalations', 'Tokens saved', 'What happened']
+        .map((c, i) => h('th', { class: i >= 3 && i <= 8 ? 'n' : '' }, c)))),
       h('tbody', {}, epHistory.slice().reverse().map(r => h('tr', {},
         h('td', {}, String(r.n)), h('td', {}, r.batch), h('td', {}, MODE_LABEL[r.mode] || r.mode),
         h('td', { class: 'n', style: r.total === fastest.get(r.batch) && epHistory.filter(x => x.batch === r.batch).length > 1 ? 'font-weight:600' : '' }, fmtS(r.total)),
-        h('td', { class: 'n' }, fmtS(r.waited)), h('td', { class: 'n' }, r.verified), h('td', { class: 'n' }, String(r.escalations)),
+        h('td', { class: 'n' }, fmtS(r.waited)), h('td', { class: 'n' }, fmtN(r.wrote)), h('td', { class: 'n' }, r.verified), h('td', { class: 'n' }, String(r.escalations)),
         h('td', { class: 'n' }, fmtN(r.saved)), h('td', { class: 'story' }, r.story)))))));
 }
 
@@ -555,7 +566,7 @@ async function runEpisode() {
         clearInterval(epTimer); $('btn-episode').disabled = false;
         if (e.status === 'done') {
           epHistory.push({ n: epHistory.length + 1, batch: EP_PRESETS[epPreset][0] + ($('ep-subtasks').value === EP_PRESETS[epPreset][1].map(x => JSON.stringify(x)).join('\n') ? '' : ' (edited)'),
-            mode: e.mode, total: e.elapsed_s, waited: e.summary.host_blocked_s, verified: `${e.summary.verified}/${e.tasks.length}`,
+            mode: e.mode, total: e.elapsed_s, waited: e.summary.host_blocked_s, wrote: e.summary.host_tokens, verified: `${e.summary.verified}/${e.tasks.length}`,
             escalations: e.summary.escalations, saved: e.summary.host_tokens_saved, story: storyOf(e) });
           renderHistory();
         }

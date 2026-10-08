@@ -1,6 +1,7 @@
 """One host episode, recorded for the dashboard's live view.
 
-Three schedules, so the dashboard can compare them on the same batch:
+Four schedules, so the dashboard can compare them on the same batch:
+  host_only the host solves every subtask itself (no delegation): the baseline
   blocking  delegate one subtask, wait for it, do one host step; repeat
   async     delegate all, do the host steps while the workers run, then collect
   burst     delegate all, but the runtime holds them until the host waits; then they run together
@@ -33,10 +34,11 @@ class Episode:
         self.id = uuid.uuid4().hex[:8]
         if not config.code_checks:  # checks run model-written code; respect the config's opt-in
             subtasks = [{**s, "check": ""} for s in subtasks]
-        if mode not in (None, "auto", "async", "burst", "blocking"):
-            raise ValueError(f"mode must be auto, async, burst or blocking, got {mode!r}")
+        if mode not in (None, "auto", "async", "burst", "blocking", "host_only"):
+            raise ValueError(f"mode must be auto, async, burst, blocking or host_only, got {mode!r}")
         self.blocking = mode == "blocking"
-        runtime_mode = "async" if self.blocking else mode
+        self.host_only = mode == "host_only"
+        runtime_mode = "async" if mode in ("blocking", "host_only") else mode
         self.config = dataclasses.replace(config, delegation_mode=runtime_mode) if runtime_mode and runtime_mode != "auto" else config
         self.runtime = DelegationRuntime(self.config, provider, ledger=ledger, call_params=CALL_PARAMS)
         self.provider = provider
@@ -53,7 +55,18 @@ class Episode:
     async def run(self) -> None:
         self.status, self.t0 = "running", time.time()
         try:
-            if self.blocking:  # one subtask at a time, with a host step after each
+            if self.host_only:  # the host answers every subtask itself, then does its own steps
+                for s in self.subtasks:
+                    span = ["work", "solving a subtask itself", time.time(), None]
+                    self.spans.append(span)
+                    self.task_ids.append(self.runtime.delegate(s["task"], check=s.get("check", ""),
+                                                               acceptance=s.get("acceptance", ""), tier=self.host.name).id)
+                    await self.runtime.await_result(self.task_ids[-1], timeout_s=None)
+                    self.host_tokens += sum(a.output_tokens for a in self.runtime.task(self.task_ids[-1]).attempts)
+                    span[3] = time.time()
+                for step in self.host_steps:
+                    await self._host_step(step)
+            elif self.blocking:  # one subtask at a time, with a host step after each
                 for i, s in enumerate(self.subtasks):
                     self._delegate(s)
                     await self._wait(self.task_ids[-1])
@@ -117,12 +130,12 @@ class Episode:
                 "error": view.get("error"),
                 # Had the host written the answer itself, it would have produced these tokens;
                 # instead it wrote only the brief.
-                "host_tokens_saved": max(0, accepted - dt.brief_tokens),
+                "host_tokens_saved": 0 if self.host_only else max(0, accepted - dt.brief_tokens),
             })
         blocked = sum((s[3] or now) - s[2] for s in self.spans if s[0] == "blocked")
         return {
             "episode_id": self.id, "status": self.status, "error": self.error,
-            "mode": "blocking" if self.blocking else self.runtime.mode,
+            "mode": "host_only" if self.host_only else "blocking" if self.blocking else self.runtime.mode,
             "host_tier": self.host.name, "elapsed_s": rel(self.t1) if self.t0 else 0.0,
             "host": [{"kind": k, "label": label, "start": rel(s), "end": rel(e), "open": e is None}
                      for k, label, s, e in self.spans],

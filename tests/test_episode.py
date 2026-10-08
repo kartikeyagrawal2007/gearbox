@@ -58,3 +58,17 @@ def test_unknown_mode_is_rejected():
     import pytest
     with pytest.raises(ValueError):
         Episode(make_config(2), FakeProvider(), [{"task": "x"}], [], mode="sometimes")
+
+
+def test_host_only_is_the_no_delegation_baseline():
+    config = dataclasses.replace(make_config(3), code_checks=True)
+    replies = {"t2": "def f():\n    return 1"}
+    ep = Episode(config, FakeProvider(replies, delay=0.01), [{"task": "Write f().", "check": "assert f() == 1"}],
+                 ["step"], mode="host_only")
+    asyncio.run(ep.run())
+    snap = ep.snapshot()
+    assert snap["mode"] == "host_only"
+    assert [a["tier"] for a in snap["tasks"][0]["attempts"]] == ["t2"]   # the host answered it
+    assert snap["summary"]["host_tokens_saved"] == 0
+    assert snap["summary"]["host_tokens"] > 400                            # it wrote the answer and its step
+    assert [s["kind"] for s in snap["host"]] == ["work", "work"]
