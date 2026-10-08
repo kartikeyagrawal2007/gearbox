@@ -120,7 +120,11 @@ We tried hard to build a "guesser" that looks at a task and assigns the right mo
 
 **But measured fairly, no guesser saved anything** compared with simply sending a random share of tasks to each of two fixed models. The guesser's own cost and its mistakes cancel out what it predicts correctly. Starting at a sensible model (the 4B) and checking does better than any guesser we built.
 
-This is a negative result, but a real and useful one. We kept the guesser in Gearbox as an experimental option and report the result honestly.
+We also tried letting the cheap model **check itself**: it answers three times, and if the answers behave differently on a few sample inputs, the task escalates. That signal is real (when the 4B's answers agree, 87% are right, against 77% overall), but the extra answers cost more than they save.
+
+**What does work is a single test.** Starting at the 4B and escalating whenever one test case fails reaches 89–98% of the 27B's quality at a fifth to a third of its cost. That's **2.4–2.7× better than random mixing**, and far ahead of every predictor we tried. So the practical rule is: *if the boss can write even one test, cheap models are safe; if it can't, don't expect a router to save you.*
+
+This is a negative result for prediction, but a real and useful one. We kept the guesser in Gearbox as an experimental option and report the result honestly.
 
 ### 4.6 Other things we learned
 - **Leverage (starting a step higher for safety) should depend on how good your test is,** not on how hard the task looks.

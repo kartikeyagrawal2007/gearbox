@@ -146,6 +146,13 @@ This matches the routing literature's own caveat that routers barely beat random
 - Trained on one benchmark, its ranking transfers to the other (AUC holds), but its bar drifts in opposite directions: too cheap HumanEval+ → MBPP+, too cautious MBPP+ → HumanEval+.
 - Fitting one offset on 20–30 labelled problems of the new kind restores the target quality (94–97%) over 50 random draws (`bench/router_train.py --calibration-study`).
 
+**Finding 18: a model checking itself by agreement is a real signal, but one test case is a far better one.** We sampled Qwen3.5 4B and 9B twice more per problem (temperature 0.7) and ran each model's three answers on five sample inputs (inputs only, never expected outputs), comparing their outputs in a canonical form (`bench/sample_answers.py`, `bench/agreement.py`).
+- **The signal is real.** When the 4B's answers agree (74% of HumanEval+ problems, 69% of MBPP+), 87% and 82% of them are correct, against 77% and 65% overall. Disagreement finds the risky answers.
+- **It costs more than it saves.** Each checked model writes extra answers. An agreement cascade (4B → 9B → 27B) reaches 92.8% / 94.9% of the 27B's quality at cost 22–24, which is 0.72–0.77× of random mixing at equal quality. The cheapest variant (one extra answer, 4B → 27B) reaches 0.90–0.97×, still no better than mixing.
+- **One test case beats every picker we tried.** A cascade from the 4B that escalates on a single failing test reaches 89.5% (HumanEval+) and 97.6% (MBPP+) of the 27B's quality at cost 5.2 and 8.5: **2.42× and 2.65× better than random mixing**. Adding agreement on top raises quality slightly (91.4%, 98.3%) at more than double the cost.
+
+So the practical rule is a test, not a predictor. *If the boss can write even one test case, start at a capable small model and escalate on failure. If it can't, nothing we tried (judges, RouteLLM, self-agreement) beats mixing fixed models.*
+
 **What we ship.** Gearbox's practical gains come from the start floor and from check-and-escalate, not from per-problem routing. The learned mode (`difficulty: learned`, `routers/judge-qwen3.5-4b.json`) stays in the tool as an experimental option, with the evidence above.
 
 ## 5.5 Asynchronous delegation (RQ1)

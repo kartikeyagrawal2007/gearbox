@@ -202,7 +202,7 @@ Each of these changed a headline number before it was caught. They make a good "
 
 ## 9. What we've found
 
-All the results, with numbers, are in **[REPORT.md](REPORT.md)** (plain language) and **[docs/paper/results.md](docs/paper/results.md)** (17 findings, with intervals and tests). In one breath:
+All the results, with numbers, are in **[REPORT.md](REPORT.md)** (plain language) and **[docs/paper/results.md](docs/paper/results.md)** (18 findings, with intervals and tests). In one breath:
 - checking plus escalation beats the biggest model at about a third of the compute
 - don't start on tiny models: 2.8× faster for the same accuracy
 - leverage should follow how strong the check is

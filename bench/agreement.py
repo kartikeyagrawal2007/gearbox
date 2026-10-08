@@ -172,6 +172,48 @@ def evaluate(runs: Path, cache: dict, n_samples: int) -> list[str]:
     return lines
 
 
+def variants(runs: Path, cache: dict) -> list[str]:
+    """Cheaper agreement policies, and agreement combined with a 1-test check
+    (needs runs/cache/weak_checks.json from bench/weak_checks.py)."""
+    weak_path = runs / "cache" / "weak_checks.json"
+    weak = json.loads(weak_path.read_text()) if weak_path.exists() else None
+    costs = {t: params_b(t) for t in LADDER}
+    policies = {  # name: (ladder, answers per checked tier, weak check level or None)
+        "agree, 2 extra answers, 4B -> 9B -> 27B": (LADDER, 3, None),
+        "agree, 1 extra answer, 4B -> 9B -> 27B": (LADDER, 2, None),
+        "agree, 1 extra answer, 4B -> 27B": ([LADDER[0], LADDER[-1]], 2, None),
+        "1-test check only, 4B -> 9B -> 27B": (LADDER, 1, "1 test"),
+        "1-test check and agree (1 extra), 4B -> 27B": ([LADDER[0], LADDER[-1]], 2, "1 test"),
+    }
+    lines = ["", "Variants (quality vs the 27B @ cost, and how they compare with random mixing at equal quality):"]
+    for name, (ladder, n, level) in policies.items():
+        if level and weak is None:
+            continue
+        cells = []
+        for ts in ("humaneval+", "mbpp+"):
+            d = load_set(runs, ts)
+            idx = {pid: k for k, pid in enumerate(d["ids"])}
+            top = d["passed"][LADDER[-1]].mean()
+            fixed = [(d["passed"][t].mean() / top, costs[t]) for t in LADDER]
+            correct, spent = [], []
+            for pid in d["ids"]:
+                c = 0.0
+                for t in ladder:
+                    if t == LADDER[-1]:
+                        c += costs[t]; correct.append(d["passed"][t][idx[pid]]); break
+                    c += costs[t] * n
+                    ok = n == 1 or agree([tuple(b) for b in cache[ts][t][pid][:n]])
+                    if level:
+                        ok = ok and bool(weak[ts][t][pid][level])
+                    if ok:
+                        correct.append(d["passed"][t][idx[pid]]); break
+                spent.append(c)
+            q, c = float(np.mean(correct) / top), float(np.mean(spent))
+            cells.append(f"{ts} {q:5.1%} @ {c:4.1f} ({mix_cost(fixed, q) / c:.2f}x)")
+        lines.append(f"  {name:<45} " + "   ".join(cells))
+    return lines
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("runs", nargs="?", default="runs")
@@ -186,7 +228,7 @@ def main() -> None:
     asyncio.run(compute(runs, samples, args.probes, args.concurrency, cache))
     cache_path.write_text(json.dumps(cache))
     n = max((len(v) for ts in samples.values() for t in ts.values() for v in t.values()), default=0)
-    print("\n".join(evaluate(runs, cache, n)))
+    print("\n".join(evaluate(runs, cache, n) + variants(runs, cache)))
 
 
 if __name__ == "__main__":

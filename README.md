@@ -16,6 +16,7 @@
 | Starting at a 4B instead of the tiniest model | same accuracy, **2.8× faster** |
 | Boss's own writing when coding is delegated | **about half** |
 | Boss keeps working (cloud boss, local workers) | **1.1–1.6× faster**, as our formula predicts |
+| One test case, starting at the 4B and escalating on failure | 89–98% of the 27B's quality, **2.4–2.7× cheaper** than the best random mix of models at that quality |
 | Picking a model per task up front (our router, and RouteLLM) | predicts, but **saves nothing** on code when measured fairly |
 
 Details and caveats: [REPORT.md](REPORT.md).

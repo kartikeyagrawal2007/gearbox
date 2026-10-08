@@ -11,7 +11,7 @@ Welcome! This page gets you from zero to your first change.
 | 3 | [ROADMAP.md](ROADMAP.md) | What's built, what's missing (ranked), what's next | 10 min |
 | 4 | [EXPLANATION.md](EXPLANATION.md) | How the code works: the vocabulary, one delegation traced through the files, the sandbox, the benchmark | 30 min |
 | 5 | [bench/README.md](bench/README.md) | Which experiment script answers which question | 5 min |
-| 6 | [docs/paper/results.md](docs/paper/results.md) | The paper version: 17 findings with intervals and tests | 20 min |
+| 6 | [docs/paper/results.md](docs/paper/results.md) | The paper version: 18 findings with intervals and tests | 20 min |
 
 Optional background: [docs/lit-review.md](docs/lit-review.md) (why the idea is new) and [docs/paper/outline.md](docs/paper/outline.md) (the paper plan).
 
