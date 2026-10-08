@@ -151,6 +151,10 @@
   .ep-summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 18px; }
   .ep-summary .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .ep-summary .k { font-size: 12px; color: var(--muted); }
+  .ep-story { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); color: var(--text); font-size: 14px; }
+  .ep-hist { margin-top: 24px; }
+  .ep-hist h3 { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
+  .ep-hist td.story { color: var(--muted); font-size: 13px; min-width: 260px; }
   .ep-axis { position: relative; height: 16px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .ep-axis span { position: absolute; transform: translateX(-50%); }
   @media (max-width: 900px) {
@@ -176,12 +180,13 @@
   <section class="card wide" aria-labelledby="h-episode">
     <h2 id="h-episode">Watch a delegation <span class="hint">the boss hands off a batch of subtasks, keeps working, and collects checked results</span></h2>
     <div class="ep-controls">
+      <div><label for="ep-preset">Batch</label><select id="ep-preset"></select></div>
       <div><label for="ep-host">Boss (expensive model)</label><select id="ep-host"></select></div>
       <div><label id="ep-mode-label">When workers run</label><div class="seg" id="ep-mode" role="group" aria-labelledby="ep-mode-label"></div></div>
       <button class="btn primary" id="btn-episode">Run the batch</button>
       <span id="ep-msg" class="muted"></span>
     </div>
-    <details><summary>Edit the batch</summary>
+    <details id="ep-edit"><summary>Change the subtasks, their tests, or the boss's own work</summary>
       <label for="ep-subtasks">Subtasks, one JSON object per line: {"task": ..., "check": ...}</label>
       <textarea id="ep-subtasks" class="mono" style="min-height:120px"></textarea>
       <label for="ep-steps">The boss's own work while it waits, one step per line</label>
@@ -193,6 +198,7 @@
       <li data-s="parallel">Work in parallel</li><li data-s="check">Check</li><li data-s="return">Return</li>
     </ol>
     <div id="episode"><div class="empty">Run the batch to watch each subtask get routed, handed off, worked on, checked and returned.</div></div>
+    <div id="ep-history"></div>
   </section>
 
   <section class="card" aria-labelledby="h-compose">
@@ -458,7 +464,7 @@ function niceMax(x) {
   return steps.find(s => s >= x) || Math.ceil(x / 60) * 60;
 }
 
-const EP_PRESET = [
+const EP_TESTED = [
   {task: "Write a Python function slugify(text) that lowercases, strips accents and joins words with single hyphens. Code only.",
    check: "assert slugify('Héllo  World!') == 'hello-world'\nassert slugify('  a--b  ') == 'a-b'\nassert slugify('') == ''"},
   {task: "Write a Python function roman_to_int(s) that converts a Roman numeral to an integer. Code only.",
@@ -466,19 +472,70 @@ const EP_PRESET = [
   {task: "Write a Python function merge_intervals(xs) that merges overlapping [start, end] intervals and returns them sorted as lists. Code only.",
    check: "assert merge_intervals([[1, 3], [2, 6], [8, 10], [15, 18]]) == [[1, 6], [8, 10], [15, 18]]\nassert merge_intervals([]) == []"},
 ];
+const EP_HARDER = [
+  {task: "Write a Python function lis_length(xs) that returns the length of the longest strictly increasing subsequence of a list of numbers. Code only.",
+   check: "for xs, n in [([], 0), ([5], 1), ([10, 9, 2, 5, 3, 7, 101, 18], 4), ([0, 1, 0, 3, 2, 3], 4), ([7, 7, 7], 1)]:\n    assert lis_length(xs) == n"},
+  {task: "Write a Python function eval_expr(s) that evaluates an arithmetic expression string with integers, + - * /, parentheses and spaces, returning a float. Do not use eval. Code only.",
+   check: "for s, v in [('1 + 2', 3), ('2 * (3 + 4)', 14), ('10 / 4', 2.5), ('2 - 3 - 4', -5), ('(1 + 2) * (3 - 5) / 2', -3)]:\n    assert abs(eval_expr(s) - v) < 1e-9"},
+  {task: "Write a Python function top_k_words(words, k) that returns the k most frequent words, most frequent first, ties broken alphabetically. Code only.",
+   check: "assert top_k_words(['b', 'a', 'b', 'c', 'a', 'b'], 2) == ['b', 'a']\nassert top_k_words(['x', 'y'], 2) == ['x', 'y']\nassert top_k_words([], 3) == []"},
+];
+const EP_PRESETS = {
+  tested: ['Three coding tasks, with tests', EP_TESTED],
+  untested: ['The same tasks, without tests', EP_TESTED.map(({ task }) => ({ task }))],
+  harder: ['Three harder tasks, with tests', EP_HARDER],
+};
 const EP_STEPS = ["In three sentences, plan the module these functions belong to.", "List the edge cases the module's integration tests must cover."];
-let epMode = 'auto', epTimer = null;
+let epMode = 'auto', epTimer = null, epPreset = 'tested';
+const epHistory = [];
+const MODE_LABEL = { blocking: 'Wait for each (blocking)', async: 'Keep working (async)', burst: 'Work first, then run all (burst)', auto: 'Auto' };
 
 function setupEpisode() {
   fillSelect($('ep-host'), CONFIG.tiers.filter(usable).map(t => [t.name, `${t.name} (${modelName(t)})`]),
              CONFIG.tiers[CONFIG.tiers.length - 1].name);
   $('ep-host').value = CONFIG.tiers[CONFIG.tiers.length - 1].name;
-  $('ep-mode').replaceChildren(...[['auto', 'Auto'], ['async', 'At once (async)'], ['burst', 'When the boss waits (burst)']].map(([v, l]) =>
+  fillSelect($('ep-preset'), Object.entries(EP_PRESETS).map(([k, [label]]) => [k, label]), epPreset);
+  $('ep-preset').onchange = () => { epPreset = $('ep-preset').value; loadPreset(); };
+  $('ep-mode').replaceChildren(...['blocking', 'async', 'burst', 'auto'].map(v => [v, MODE_LABEL[v]]).map(([v, l]) =>
     h('button', { type: 'button', 'data-v': v, class: v === epMode ? 'on' : '', onclick: () => {
       epMode = v; $('ep-mode').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); } }, l)));
-  $('ep-subtasks').value = EP_PRESET.map(s => JSON.stringify(s)).join('\n');
+  loadPreset();
   $('ep-steps').value = EP_STEPS.join('\n');
   $('btn-episode').onclick = runEpisode;
+}
+
+function loadPreset() {
+  $('ep-subtasks').value = EP_PRESETS[epPreset][1].map(s => JSON.stringify(s)).join('\n');
+}
+
+function storyOf(e) {
+  const s = e.summary, n = e.tasks.length, waited = fmtS(s.host_blocked_s), total = fmtS(e.elapsed_s);
+  const how = {
+    blocking: `The boss handed off one subtask at a time and waited for each before going on: ${waited} of the ${total} was spent waiting.`,
+    async: `The boss handed off all ${n} subtasks and kept working while they ran, then waited ${waited} at the end.`,
+    burst: `The boss did its own work first; the ${n} subtasks were held, then ran together while it waited ${waited}.`,
+  }[e.mode] || '';
+  const checks = s.verified === n ? `All ${n} answers passed their tests.` :
+    e.tasks.some(t => t.verified !== null) ? `${s.verified} of ${n} answers passed their tests.` : 'There were no tests, so nothing was verified.';
+  const esc = s.escalations ? ` ${s.escalations} answer${s.escalations > 1 ? 's' : ''} failed a test and went to a stronger model.` : '';
+  return `${how} ${checks}${esc} The boss avoided writing about ${fmtN(s.host_tokens_saved)} tokens.`;
+}
+
+function renderHistory() {
+  if (!epHistory.length) { $('ep-history').replaceChildren(); return; }
+  const fastest = new Map();
+  for (const r of epHistory) if (!fastest.has(r.batch) || r.total < fastest.get(r.batch)) fastest.set(r.batch, r.total);
+  $('ep-history').replaceChildren(h('div', { class: 'ep-hist' },
+    h('h3', {}, 'Your runs'),
+    h('div', { class: 'muted', style: 'font-size:13px' }, 'Run the same batch with different settings for "When workers run" to compare. The fastest run of each batch is in bold.'),
+    h('table', {},
+      h('thead', {}, h('tr', {}, ['#', 'Batch', 'When workers ran', 'Total', 'Boss waited', 'Verified', 'Escalations', 'Tokens saved', 'What happened']
+        .map((c, i) => h('th', { class: i >= 3 && i <= 7 ? 'n' : '' }, c)))),
+      h('tbody', {}, epHistory.slice().reverse().map(r => h('tr', {},
+        h('td', {}, String(r.n)), h('td', {}, r.batch), h('td', {}, MODE_LABEL[r.mode] || r.mode),
+        h('td', { class: 'n', style: r.total === fastest.get(r.batch) && epHistory.filter(x => x.batch === r.batch).length > 1 ? 'font-weight:600' : '' }, fmtS(r.total)),
+        h('td', { class: 'n' }, fmtS(r.waited)), h('td', { class: 'n' }, r.verified), h('td', { class: 'n' }, String(r.escalations)),
+        h('td', { class: 'n' }, fmtN(r.saved)), h('td', { class: 'story' }, r.story)))))));
 }
 
 async function runEpisode() {
@@ -494,7 +551,15 @@ async function runEpisode() {
     const tick = async () => {
       const e = await api('/api/episode/' + episode_id);
       renderEpisode(e);
-      if (e.status === 'done' || e.status === 'failed') { clearInterval(epTimer); $('btn-episode').disabled = false; }
+      if (e.status === 'done' || e.status === 'failed') {
+        clearInterval(epTimer); $('btn-episode').disabled = false;
+        if (e.status === 'done') {
+          epHistory.push({ n: epHistory.length + 1, batch: EP_PRESETS[epPreset][0] + ($('ep-subtasks').value === EP_PRESETS[epPreset][1].map(x => JSON.stringify(x)).join('\n') ? '' : ' (edited)'),
+            mode: e.mode, total: e.elapsed_s, waited: e.summary.host_blocked_s, verified: `${e.summary.verified}/${e.tasks.length}`,
+            escalations: e.summary.escalations, saved: e.summary.host_tokens_saved, story: storyOf(e) });
+          renderHistory();
+        }
+      }
     };
     epTimer = setInterval(tick, 500); tick();
   } catch (e) { $('ep-err').textContent = e.message; $('btn-episode').disabled = false; $('ep-msg').textContent = ''; }
@@ -512,7 +577,7 @@ function stageOf(e) {
 function renderEpisode(e) {
   const stage = stageOf(e);
   $('ep-stages').querySelectorAll('li').forEach((li, i) => { li.className = i + 1 < stage ? 'done' : i + 1 === stage ? 'on' : ''; });
-  $('ep-msg').textContent = e.status === 'running' ? `Running in ${e.mode} mode · ${fmtS(e.elapsed_s)}` :
+  $('ep-msg').textContent = e.status === 'running' ? `Running: ${MODE_LABEL[e.mode] || e.mode} · ${fmtS(e.elapsed_s)}` :
     e.status === 'done' ? `Finished in ${fmtS(e.elapsed_s)}` : e.error || '';
   const ends = [...e.host.map(s => s.end), ...e.tasks.flatMap(t => t.attempts.map(a => a.end)), e.elapsed_s];
   const span = niceMax(Math.max(1, ...ends));
@@ -551,7 +616,7 @@ function renderEpisode(e) {
   const ticks = [0, .25, .5, .75, 1].map(f => h('span', { style: `left:${f * 100}%` }, fmtS(f * span)));
   const hostRow = h('div', { class: 'ep-row host-row' },
     h('div', { class: 'ep-task' }, h('b', {}, 'The boss'), h('small', {}, e.host_tier)),
-    h('div', { class: 'route-note' }, `${e.mode} mode`),
+    h('div', { class: 'route-note' }, MODE_LABEL[e.mode] || e.mode),
     h('div', { class: 'ep-lane' }, h('div', { class: 'track' }, e.host.map(s => h('div', {
       class: 'bar ' + (s.kind === 'work' ? 'work' : 'blocked') + (s.open ? ' open' : ''),
       style: `left:${pct(s.start)};width:${pct(Math.max(s.end - s.start, 0.05))}`, title: s.label },
@@ -566,6 +631,7 @@ function renderEpisode(e) {
       e.tasks.map(t => h('div', { class: 'ep-row' },
         h('div', { class: 'ep-task' }, h('b', { title: t.task }, t.task.replace(/^Write a Python function /, '')), h('small', {}, t.task_id)),
         routeCell(t), laneCell(t), outCell(t)))),
+    e.status === 'done' ? h('div', { class: 'ep-story' }, storyOf(e)) : null,
     h('div', { class: 'ep-summary' },
       [[fmtS(e.elapsed_s), 'total time'], [fmtS(s.host_blocked_s), 'the boss spent waiting'],
        [`${s.verified}/${e.tasks.length}`, 'answers verified by their checks'], [String(s.escalations), 'escalations to a stronger model'],

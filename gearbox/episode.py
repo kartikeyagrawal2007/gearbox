@@ -1,7 +1,10 @@
 """One host episode, recorded for the dashboard's live view.
 
-The host delegates a batch of subtasks, does its own steps, then collects the results:
-the flow an agent using Gearbox follows. Everything the screen shows comes from the
+Three schedules, so the dashboard can compare them on the same batch:
+  blocking  delegate one subtask, wait for it, do one host step; repeat
+  async     delegate all, do the host steps while the workers run, then collect
+  burst     delegate all, but the runtime holds them until the host waits; then they run together
+Every model call is recorded in the shared ledger (workers as delegations, host steps as "direct"). Everything the screen shows comes from the
 real runtime: each subtask's routing decision (pass chance per tier from the learned
 router, the check's strength), every attempt with its tier, timing and check result,
 escalations, and the host's own work and waiting, all on one clock.
@@ -14,6 +17,7 @@ import time
 import uuid
 
 from gearbox.config import GearboxConfig
+from gearbox.cost.ledger import Ledger
 from gearbox.delegate.runtime import TERMINAL, DelegationRuntime
 from gearbox.providers import Provider
 from gearbox.verify.strength import check_strength, count_cases
@@ -23,14 +27,18 @@ CALL_PARAMS = {"temperature": 0}
 
 class Episode:
     def __init__(self, config: GearboxConfig, provider: Provider, subtasks: list[dict], host_steps: list[str],
-                 host_tier: str | int | None = None, mode: str | None = None) -> None:
+                 host_tier: str | int | None = None, mode: str | None = None, ledger: Ledger | None = None) -> None:
         if not subtasks:
             raise ValueError("add at least one subtask")
         self.id = uuid.uuid4().hex[:8]
         if not config.code_checks:  # checks run model-written code; respect the config's opt-in
             subtasks = [{**s, "check": ""} for s in subtasks]
-        self.config = dataclasses.replace(config, delegation_mode=mode) if mode else config
-        self.runtime = DelegationRuntime(self.config, provider, call_params=CALL_PARAMS)
+        if mode not in (None, "auto", "async", "burst", "blocking"):
+            raise ValueError(f"mode must be auto, async, burst or blocking, got {mode!r}")
+        self.blocking = mode == "blocking"
+        runtime_mode = "async" if self.blocking else mode
+        self.config = dataclasses.replace(config, delegation_mode=runtime_mode) if runtime_mode and runtime_mode != "auto" else config
+        self.runtime = DelegationRuntime(self.config, provider, ledger=ledger, call_params=CALL_PARAMS)
         self.provider = provider
         self.subtasks = subtasks
         self.host_steps = [s for s in host_steps if s.strip()]
@@ -45,26 +53,45 @@ class Episode:
     async def run(self) -> None:
         self.status, self.t0 = "running", time.time()
         try:
-            for s in self.subtasks:
-                self.task_ids.append(self.runtime.delegate(s["task"], check=s.get("check", ""),
-                                                           acceptance=s.get("acceptance", "")).id)
-            for step in self.host_steps:
-                span = ["work", step, time.time(), None]
-                self.spans.append(span)
-                c = await self.provider.complete(self.host, [{"role": "user", "content": step}],
-                                                 max_tokens=256, timeout=300, **CALL_PARAMS)
-                self.host_tokens += c.output_tokens
-                span[3] = time.time()
-            for tid in self.task_ids:
-                span = ["blocked", "waiting for workers", time.time(), None]
-                self.spans.append(span)
-                await self.runtime.await_result(tid, timeout_s=None)
-                span[3] = time.time()
+            if self.blocking:  # one subtask at a time, with a host step after each
+                for i, s in enumerate(self.subtasks):
+                    self._delegate(s)
+                    await self._wait(self.task_ids[-1])
+                    if i < len(self.host_steps):
+                        await self._host_step(self.host_steps[i])
+                for step in self.host_steps[len(self.subtasks):]:
+                    await self._host_step(step)
+            else:
+                for s in self.subtasks:
+                    self._delegate(s)
+                for step in self.host_steps:
+                    await self._host_step(step)
+                for tid in self.task_ids:
+                    await self._wait(tid)
             self.status = "done"
         except Exception as e:
             self.status, self.error = "failed", f"{type(e).__name__}: {e}"
         finally:
             self.t1 = time.time()
+
+    def _delegate(self, s: dict) -> None:
+        self.task_ids.append(self.runtime.delegate(s["task"], check=s.get("check", ""),
+                                                   acceptance=s.get("acceptance", "")).id)
+
+    async def _host_step(self, step: str) -> None:
+        span = ["work", step, time.time(), None]
+        self.spans.append(span)
+        c = await self.provider.complete(self.host, [{"role": "user", "content": step}],
+                                         max_tokens=256, timeout=300, **CALL_PARAMS)
+        self.runtime.ledger.record(self.host, c, role="direct")
+        self.host_tokens += c.output_tokens
+        span[3] = time.time()
+
+    async def _wait(self, task_id: str) -> None:
+        span = ["blocked", "waiting for workers", time.time(), None]
+        self.spans.append(span)
+        await self.runtime.await_result(task_id, timeout_s=None)
+        span[3] = time.time()
 
     def snapshot(self) -> dict:
         now = time.time()
@@ -94,7 +121,8 @@ class Episode:
             })
         blocked = sum((s[3] or now) - s[2] for s in self.spans if s[0] == "blocked")
         return {
-            "episode_id": self.id, "status": self.status, "error": self.error, "mode": self.runtime.mode,
+            "episode_id": self.id, "status": self.status, "error": self.error,
+            "mode": "blocking" if self.blocking else self.runtime.mode,
             "host_tier": self.host.name, "elapsed_s": rel(self.t1) if self.t0 else 0.0,
             "host": [{"kind": k, "label": label, "start": rel(s), "end": rel(e), "open": e is None}
                      for k, label, s, e in self.spans],

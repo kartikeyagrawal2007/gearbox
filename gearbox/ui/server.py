@@ -144,7 +144,8 @@ def create_app(
         body = await request.json()
         await require_downloaded(body.get("host_tier") or None)
         episode = Episode(config, runtime.provider, body["subtasks"], body.get("host_steps") or [],
-                          host_tier=body.get("host_tier") or None, mode=body.get("mode") or None)
+                          host_tier=body.get("host_tier") or None, mode=body.get("mode") or None,
+                          ledger=runtime.ledger)  # batch runs count in the dashboard's ledger too
         episodes[episode.id] = episode
         job = asyncio.get_running_loop().create_task(episode.run())
         background.add(job)

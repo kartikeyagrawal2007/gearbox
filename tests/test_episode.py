@@ -36,3 +36,25 @@ def test_episode_endpoint_runs_and_reports():
         snap = client.get(f"/api/episode/{r.json()['episode_id']}").json()
         assert snap["tasks"][0]["task"] == "Write g()."
         assert client.post("/api/episode", json={"subtasks": []}).status_code == 400
+
+
+def test_blocking_waits_for_each_subtask_and_everything_lands_in_the_shared_ledger():
+    from gearbox.cost.ledger import Ledger
+    config = dataclasses.replace(make_config(3), code_checks=True)
+    ledger = Ledger(config.host)
+    replies = {"t0": "def f():\n    return 1", "t1": "def f():\n    return 1", "t2": "notes"}
+    subtasks = [{"task": "Write f().", "check": "assert f() == 1"}] * 2
+    ep = Episode(config, FakeProvider(replies, delay=0.05), subtasks, ["step a", "step b"],
+                 mode="blocking", ledger=ledger)
+    asyncio.run(ep.run())
+    snap = ep.snapshot()
+    assert snap["mode"] == "blocking"
+    assert [s["kind"] for s in snap["host"]] == ["blocked", "work", "blocked", "work"]  # wait, work, wait, work
+    roles = sorted(r.role for r in ledger.records)
+    assert roles.count("direct") == 2 and len(roles) >= 4      # 2 host steps + the workers' calls
+
+
+def test_unknown_mode_is_rejected():
+    import pytest
+    with pytest.raises(ValueError):
+        Episode(make_config(2), FakeProvider(), [{"task": "x"}], [], mode="sometimes")
