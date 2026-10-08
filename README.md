@@ -1,38 +1,59 @@
 # Gearbox
 
-**An automatic transmission for LLM agents.** An expensive "host" model (the agent in Claude Code, Antigravity, Cursor, …) hands self-contained subtasks to cheaper models, keeps working while they run, and accepts an answer only once it passes an executable check.
+**An automatic transmission for LLM agents.** An expensive "boss" model (the agent in Claude Code, Antigravity, Cursor, …) hands self-contained subtasks to cheaper models, keeps working while they run, and accepts an answer only once it passes an executable check.
 
-- **Picks the gear.** Routes each subtask to the cheapest model tier that should handle it, plus **leverage**: a safety margin that grows with risk and with how unsure the difficulty estimate is.
-- **Doesn't wait.** `delegate()` returns at once; the host blocks only when it needs the result. Gearbox measures how much waiting that actually saved.
-- **Verifies, doesn't trust.** Cheap models say "done" when they're wrong and almost never say "unsure". Gearbox runs a check against each answer and escalates a failed one to a stronger tier, along with exactly what failed.
+- **Picks the gear.** Each subtask goes to the cheapest model that should handle it. It never starts on the tiniest ones, and it starts higher when the check is weak.
+- **Checks, doesn't trust.** Cheap models say "done" when they're wrong and almost never say "unsure". Gearbox runs tests on every answer and escalates a failure to a stronger model, showing it what failed.
+- **Doesn't wait, when that helps.** With a cloud boss, delegated work runs while the boss keeps going. When the boss shares the workers' GPU, Gearbox holds the work until the boss waits, so the two never fight over it.
 
-> **What did we find? Read [REPORT.md](REPORT.md)**: did delegating to cheaper models work, and did it save time and tokens?
->
-> **New here? Read [EXPLANATION.md](EXPLANATION.md).** It explains every part in plain language: the idea, the vocabulary, how a delegation flows through the code, the benchmarks, and what we've found.
->
-> Status: research prototype (v0.1), the tool half of a paper on asynchronous, verified delegation to cheaper models. See [docs/paper/outline.md](docs/paper/outline.md) and [docs/lit-review.md](docs/lit-review.md).
+## What we measured
+
+12 open models × 542 coding problems with hidden tests (HumanEval+ and MBPP+), on an RTX A5000:
+
+| | Result |
+|---|---|
+| Cheap model first, check, escalate on failure | **95.7%** vs 92.7% for always using Qwen3.5 27B, at **about 1/3 of the compute** |
+| Starting at a 4B instead of the tiniest model | same accuracy, **2.8× faster** |
+| Boss's own writing when coding is delegated | **about half** |
+| Boss keeps working (cloud boss, local workers) | **1.1–1.6× faster**, as our formula predicts |
+| Picking a model per task up front (our router, and RouteLLM) | predicts, but **saves nothing** on code when measured fairly |
+
+Details and caveats: [REPORT.md](REPORT.md).
+
+## Start here
+
+| If you want to… | Read |
+|---|---|
+| Know what we found, and whether it worked | [REPORT.md](REPORT.md) |
+| See what's built, what's missing, and what's next | [ROADMAP.md](ROADMAP.md) |
+| Understand how the code works | [EXPLANATION.md](EXPLANATION.md) |
+| Contribute (setup, lab PC, rules for experiments) | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Run or extend an experiment | [bench/README.md](bench/README.md) |
+| Read the paper draft | [docs/paper/results.md](docs/paper/results.md), [docs/paper/outline.md](docs/paper/outline.md) |
 
 ## Quick start
 
 ```bash
-pip install -e ".[dev]"           # extras: gpu (energy measurement), plots (figures)
+python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"   # extras: plots (figures), gpu (energy), baselines (RouteLLM)
 cp gearbox.example.yaml gearbox.yaml
-gearbox ui --simulate             # dashboard with fake models, no setup needed → http://127.0.0.1:8790
+.venv/bin/gearbox ui --simulate      # dashboard with fake models: http://127.0.0.1:8790
 ```
 
-Edit `gearbox.yaml` to use real models. A tier is any [LiteLLM](https://docs.litellm.ai/) model string (Ollama, vLLM, Anthropic, OpenAI, Gemini, OpenRouter, …). Then:
+In the dashboard, **Watch a delegation → Run the batch** shows a batch being routed, handed off, worked on in parallel, checked and returned.
+
+For real models, set the tiers in `gearbox.yaml`. A tier is any [LiteLLM](https://docs.litellm.ai/) model string (Ollama, vLLM, Anthropic, OpenAI, Gemini, OpenRouter, …). Then:
 
 ```bash
-gearbox ui                                                         # dashboard with real models
-gearbox route "Design a lock-free queue and prove it" --risk high  # which tier, and why
-gearbox run "Write add(a, b). Code only." --check "assert add(2, 3) == 5"
+.venv/bin/gearbox ui                                                        # dashboard, real models
+.venv/bin/gearbox route "Design a lock-free queue and prove it" --risk high # which model, and why
+.venv/bin/gearbox run "Write add(a, b). Code only." --check "assert add(2, 3) == 5"
 ```
 
-Checks run model-written code, so they're off unless `code_checks: true`. Isolation is best effort (temp dir, empty environment, limits, no network where supported), not a security boundary.
+Checks run model-written code, so they're off unless `code_checks: true`. Isolation is best effort (a temp folder, an empty environment, time and CPU limits, no network where supported). It is **not** a security boundary; see ROADMAP T1.
 
 ## Use it from an agent (MCP)
 
-Tools: `route`, `delegate`, `await_result`, `status`, `cancel`, `ledger`. Add `--dashboard 8777` to watch delegations live.
+Tools: `delegate`, `await_result`, `status`, `cancel`, `ledger`, `route`. Add `--dashboard 8777` to watch delegations live.
 
 ```bash
 claude mcp add gearbox -e GEARBOX_CONFIG=/abs/path/gearbox.yaml -- /abs/path/.venv/bin/gearbox-mcp
@@ -45,22 +66,12 @@ For **Antigravity** (`~/.gemini/config/mcp_config.json`) or **Cursor** (`.cursor
                                "env": { "GEARBOX_CONFIG": "/abs/path/gearbox.yaml" } } } }
 ```
 
-## Benchmarks
+## Tests
 
 ```bash
-python bench/false_done.py --config gearbox.yaml --tasks humaneval+ --json runs/he.json   # or mbpp+, smoke
-python bench/results.py                      # results table
-python bench/plots.py                        # paper figures → docs/paper/figures/
-```
-
-HumanEval+ (164 problems) and MBPP+ (378) use hidden tests graded exactly like the official EvalPlus evaluator. Validation with qwen2.5-coder:1.5b: **65.2% / 58.7%** here vs **66.5% / 59.4%** published; all 542 reference solutions pass their own checks. Running on a lab GPU over WSL: [vm/README.md](vm/README.md).
-
-## Development
-
-```bash
-.venv/bin/python -m pytest -q     # 96 tests
+.venv/bin/python -m pytest -q
 ```
 
 ## License
 
-Apache-2.0
+[Apache-2.0](LICENSE)

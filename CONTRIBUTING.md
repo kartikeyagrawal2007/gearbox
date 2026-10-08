@@ -37,7 +37,7 @@ In the dashboard, click **Run the batch** under "Watch a delegation" to see the 
 
 ## 4. Data
 
-Raw results live in `runs/`, which is **not in git** (about 15 MB of model answers). Ask Kartikey for the latest `runs` archive and unpack it in the repo root. The summaries the paper cites are in git (`docs/paper/data/`).
+Raw results live in `runs/`, which is **not in git** (about 30 MB of model answers). Ask Kartikey for the latest `runs` archive and unpack it in the repo root. The summaries the paper cites are in git (`docs/paper/data/`).
 
 ## 5. The lab PC
 
