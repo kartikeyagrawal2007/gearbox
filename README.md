@@ -25,10 +25,13 @@ Details and caveats: [REPORT.md](REPORT.md).
 
 | If you want to… | Read |
 |---|---|
+| Understand the idea, and what's new about it | [IDEA.md](IDEA.md) |
 | Know what we found, and whether it worked | [REPORT.md](REPORT.md) |
 | See what's built, what's missing, and what's next | [ROADMAP.md](ROADMAP.md) |
 | Understand how the code works | [EXPLANATION.md](EXPLANATION.md) |
-| Contribute (setup, lab PC, rules for experiments) | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Set it up (laptop, real models, agents, the lab PC) | [SETUP.md](SETUP.md) |
+| Contribute (reading order, rules for experiments, workflow) | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Work on it with an AI coding agent | [AGENTS.md](AGENTS.md) |
 | Run or extend an experiment | [bench/README.md](bench/README.md) |
 | Read the paper draft | [docs/paper/results.md](docs/paper/results.md), [docs/paper/outline.md](docs/paper/outline.md) |
 

@@ -6,6 +6,7 @@ Welcome! This page gets you from zero to your first change.
 
 | # | File | What you'll get from it | Time |
 |---|---|---|---|
+| 0 | [IDEA.md](IDEA.md) | The full idea: the problem, the approach, what's new, how the results changed it | 10 min |
 | 1 | [README.md](README.md) | What Gearbox is, in one screen | 5 min |
 | 2 | [REPORT.md](REPORT.md) | **What we found, with all the numbers.** Example: cheap models + checks beat the 27B (95.7% vs 92.7%) at about 1/3 of the compute | 20 min |
 | 3 | [ROADMAP.md](ROADMAP.md) | What's built, what's missing (ranked), what's next | 10 min |
@@ -15,17 +16,9 @@ Welcome! This page gets you from zero to your first change.
 
 Optional background: [docs/lit-review.md](docs/lit-review.md) (why the idea is new) and [docs/paper/outline.md](docs/paper/outline.md) (the paper plan).
 
-## 2. Set up (Mac or Linux)
+## 2. Set up
 
-```bash
-git clone https://github.com/kartikeyagrawal2007/gearbox.git && cd gearbox
-python3 -m venv .venv && .venv/bin/pip install -e ".[dev,plots]"
-cp gearbox.example.yaml gearbox.yaml
-.venv/bin/python -m pytest -q          # all tests should pass
-.venv/bin/gearbox ui --simulate        # dashboard with fake models: http://127.0.0.1:8790
-```
-
-In the dashboard, click **Run the batch** under "Watch a delegation" to see the whole pipeline. With real models (Ollama), set your tiers in `gearbox.yaml`.
+Follow **[SETUP.md](SETUP.md)**: it covers the laptop demo, real models, MCP agents and the lab PC. If you work with an AI coding agent, point it at **[AGENTS.md](AGENTS.md)**.
 
 ## 3. Where things live
 
