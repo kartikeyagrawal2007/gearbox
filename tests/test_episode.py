@@ -72,3 +72,21 @@ def test_host_only_is_the_no_delegation_baseline():
     assert snap["summary"]["host_tokens_saved"] == 0
     assert snap["summary"]["host_tokens"] > 400                            # it wrote the answer and its step
     assert [s["kind"] for s in snap["host"]] == ["work", "work"]
+
+
+def test_auto_follows_where_the_boss_runs_and_cloud_boss_is_simulated():
+    from gearbox.config import GearboxConfig, Tier
+    tiers = (Tier("w", "ollama_chat/qwen3.5:4b"), Tier("boss", "ollama_chat/qwen3.5:27b"))
+    config = GearboxConfig(tiers=tiers, leverage=0)  # subtasks route to the worker, so a "boss" call could only be the boss
+    local = Episode(config, FakeProvider(), [{"task": "x"}], [], mode="auto", boss="local")
+    cloud = Episode(config, FakeProvider(), [{"task": "x"}], ["plan"], mode="auto", boss="cloud")
+    assert local.snapshot()["mode"] == "burst"    # boss shares the workers' Ollama: don't overlap
+    assert cloud.snapshot()["mode"] == "async"    # boss elsewhere: keep working
+    provider = FakeProvider({"w": "ok"})
+    ep = Episode(config, provider, [{"task": "x"}], ["plan"], mode="async", boss="cloud")
+    asyncio.run(ep.run())
+    assert "boss" not in provider.calls           # the cloud boss used no local model
+    assert ep.snapshot()["summary"]["host_tokens"] == 256
+    import pytest
+    with pytest.raises(ValueError):
+        Episode(config, FakeProvider(), [{"task": "x"}], [], mode="host_only", boss="cloud")

@@ -5,7 +5,13 @@ Four schedules, so the dashboard can compare them on the same batch:
   blocking  delegate one subtask, wait for it, do one host step; repeat
   async     delegate all, do the host steps while the workers run, then collect
   burst     delegate all, but the runtime holds them until the host waits; then they run together
-Every model call is recorded in the shared ledger (workers as delegations, host steps as "direct"). Everything the screen shows comes from the
+  auto      Gearbox picks: async for a cloud boss, burst for a boss on the workers' GPU
+Every model call is recorded in the shared ledger (workers as delegations, host steps as "direct").
+
+Where the boss runs (`boss`): "local" uses the host tier for real; "cloud" simulates a cloud
+model by time (CLOUD_TTFT_S to the first token, then CLOUD_TOKENS_PER_S, the fast host of the
+paper's experiments), using no local hardware. A simulated cloud boss can't do the subtasks
+itself, since that would need the cloud model's real answers. Everything the screen shows comes from the
 real runtime: each subtask's routing decision (pass chance per tier from the learned
 router, the check's strength), every attempt with its tier, timing and check result,
 escalations, and the host's own work and waiting, all on one clock.
@@ -13,6 +19,7 @@ escalations, and the host's own work and waiting, all on one clock.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import time
 import uuid
@@ -24,11 +31,14 @@ from gearbox.providers import Provider
 from gearbox.verify.strength import check_strength, count_cases
 
 CALL_PARAMS = {"temperature": 0}
+HOST_STEP_TOKENS = 256
+CLOUD_TTFT_S, CLOUD_TOKENS_PER_S = 1.0, 80.0
 
 
 class Episode:
     def __init__(self, config: GearboxConfig, provider: Provider, subtasks: list[dict], host_steps: list[str],
-                 host_tier: str | int | None = None, mode: str | None = None, ledger: Ledger | None = None) -> None:
+                 host_tier: str | int | None = None, mode: str | None = None, ledger: Ledger | None = None,
+                 boss: str = "local") -> None:
         if not subtasks:
             raise ValueError("add at least one subtask")
         self.id = uuid.uuid4().hex[:8]
@@ -36,15 +46,26 @@ class Episode:
             subtasks = [{**s, "check": ""} for s in subtasks]
         if mode not in (None, "auto", "async", "burst", "blocking", "host_only"):
             raise ValueError(f"mode must be auto, async, burst, blocking or host_only, got {mode!r}")
+        if boss not in ("local", "cloud"):
+            raise ValueError(f"boss must be local or cloud, got {boss!r}")
+        if boss == "cloud" and mode == "host_only":
+            raise ValueError("a simulated cloud boss can't do the subtasks itself: that needs the cloud model's real answers")
+        self.cloud = boss == "cloud"
         self.blocking = mode == "blocking"
         self.host_only = mode == "host_only"
-        runtime_mode = "async" if mode in ("blocking", "host_only") else mode
-        self.config = dataclasses.replace(config, delegation_mode=runtime_mode) if runtime_mode and runtime_mode != "auto" else config
+        self.auto = mode in (None, "auto")
+        host = config.tiers[config.tier_index(host_tier) if host_tier is not None else config.top]
+        if self.auto:  # what Gearbox would choose for this boss
+            runtime_mode = "async" if self.cloud else dataclasses.replace(
+                config, delegation_mode="auto", host_model=host.model, host_api_base=host.api_base).effective_delegation_mode
+        else:
+            runtime_mode = "async" if mode in ("blocking", "host_only") else mode
+        self.config = dataclasses.replace(config, delegation_mode=runtime_mode)
         self.runtime = DelegationRuntime(self.config, provider, ledger=ledger, call_params=CALL_PARAMS)
         self.provider = provider
         self.subtasks = subtasks
         self.host_steps = [s for s in host_steps if s.strip()]
-        self.host = self.config.tiers[self.config.tier_index(host_tier) if host_tier is not None else self.config.top]
+        self.host = host
         self.task_ids: list[str] = []
         self.spans: list[list] = []  # [kind, label, start, end or None]
         self.host_tokens = 0
@@ -94,8 +115,13 @@ class Episode:
     async def _host_step(self, step: str) -> None:
         span = ["work", step, time.time(), None]
         self.spans.append(span)
+        if self.cloud:  # simulated by time: no local hardware used
+            await asyncio.sleep(CLOUD_TTFT_S + HOST_STEP_TOKENS / CLOUD_TOKENS_PER_S)
+            self.host_tokens += HOST_STEP_TOKENS
+            span[3] = time.time()
+            return
         c = await self.provider.complete(self.host, [{"role": "user", "content": step}],
-                                         max_tokens=256, timeout=300, **CALL_PARAMS)
+                                         max_tokens=HOST_STEP_TOKENS, timeout=300, **CALL_PARAMS)
         self.runtime.ledger.record(self.host, c, role="direct")
         self.host_tokens += c.output_tokens
         span[3] = time.time()
@@ -136,7 +162,8 @@ class Episode:
         return {
             "episode_id": self.id, "status": self.status, "error": self.error,
             "mode": "host_only" if self.host_only else "blocking" if self.blocking else self.runtime.mode,
-            "host_tier": self.host.name, "elapsed_s": rel(self.t1) if self.t0 else 0.0,
+            "auto": self.auto, "boss": "cloud" if self.cloud else "local",
+            "host_tier": "cloud model (simulated)" if self.cloud else self.host.name, "elapsed_s": rel(self.t1) if self.t0 else 0.0,
             "host": [{"kind": k, "label": label, "start": rel(s), "end": rel(e), "open": e is None}
                      for k, label, s, e in self.spans],
             "tasks": tasks,

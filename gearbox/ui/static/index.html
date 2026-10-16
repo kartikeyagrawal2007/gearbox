@@ -182,7 +182,8 @@
     <div class="ep-controls">
       <div><label for="ep-preset">Batch</label><select id="ep-preset"></select></div>
       <div><label for="ep-host">Boss (expensive model)</label><select id="ep-host"></select></div>
-      <div><label id="ep-mode-label">Schedule</label><div class="seg" id="ep-mode" role="group" aria-labelledby="ep-mode-label"></div></div>
+      <div><label id="ep-boss-label">Where the boss runs</label><div class="seg" id="ep-boss" role="group" aria-labelledby="ep-boss-label"></div></div>
+      <div><label id="ep-mode-label">Schedules to run <span class="muted">(pick one or more)</span></label><div class="seg" id="ep-mode" role="group" aria-labelledby="ep-mode-label"></div></div>
       <button class="btn primary" id="btn-episode">Run the batch</button>
       <span id="ep-msg" class="muted"></span>
     </div>
@@ -487,7 +488,13 @@ const EP_PRESETS = {
   harder: ['Three harder tasks, with tests', EP_HARDER],
 };
 const EP_STEPS = ["In three sentences, plan the module these functions belong to.", "List the edge cases the module's integration tests must cover."];
-let epMode = 'auto', epTimer = null, epPreset = 'tested';
+let epModes = new Set(['auto']), epBoss = 'local', epPreset = 'tested';
+const MODE_ORDER = ['host_only', 'blocking', 'async', 'burst', 'auto'];
+const BOSS_LABEL = { local: 'Same GPU as the workers', cloud: 'In the cloud (simulated)' };
+const BOSS_HELP = {
+  local: 'The boss is the model picked above, running on this GPU next to the workers.',
+  cloud: 'The boss is simulated as a fast cloud model (1 s to start, then 80 tokens per second). It uses none of this GPU, like Claude in Claude Code.',
+};
 const epHistory = [];
 const MODE_LABEL = { host_only: 'Do it all yourself', blocking: 'Wait for each (blocking)', async: 'Keep working (async)', burst: 'Work first, then run all (burst)', auto: 'Auto' };
 const MODE_HELP = {
@@ -495,7 +502,7 @@ const MODE_HELP = {
   blocking: 'The boss hands off one subtask, waits until it comes back, does a bit of its own work, then hands off the next.',
   async: 'The boss hands off every subtask at once and keeps working while they run. Best when the boss runs elsewhere (a cloud model).',
   burst: 'The boss hands off every subtask, but they only start when the boss stops to wait, then all run together. Best when the boss shares the workers\' GPU.',
-  auto: 'Gearbox picks: burst if the boss runs on the same GPU as the workers, async otherwise.',
+  auto: 'Let Gearbox choose from where the boss runs: burst when it shares the workers\' GPU, async when it runs in the cloud.',
 };
 
 function setupEpisode() {
@@ -504,14 +511,29 @@ function setupEpisode() {
   $('ep-host').value = CONFIG.tiers[CONFIG.tiers.length - 1].name;
   fillSelect($('ep-preset'), Object.entries(EP_PRESETS).map(([k, [label]]) => [k, label]), epPreset);
   $('ep-preset').onchange = () => { epPreset = $('ep-preset').value; loadPreset(); };
-  $('ep-mode').replaceChildren(...['host_only', 'blocking', 'async', 'burst', 'auto'].map(v => [v, MODE_LABEL[v]]).map(([v, l]) =>
-    h('button', { type: 'button', 'data-v': v, class: v === epMode ? 'on' : '', onclick: () => {
-      epMode = v; $('ep-mode-help').textContent = MODE_HELP[v];
-      $('ep-mode').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); } }, l)));
-  $('ep-mode-help').textContent = MODE_HELP[epMode];
+  $('ep-boss').replaceChildren(...Object.entries(BOSS_LABEL).map(([v, l]) => h('button', {
+    type: 'button', 'data-v': v, class: v === epBoss ? 'on' : '', 'aria-pressed': String(v === epBoss),
+    onclick: () => { epBoss = v; renderModeButtons(); } }, l)));
+  renderModeButtons();
   loadPreset();
   $('ep-steps').value = EP_STEPS.join('\n');
   $('btn-episode').onclick = runEpisode;
+}
+
+function renderModeButtons() {
+  $('ep-boss').querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.v === epBoss); b.setAttribute('aria-pressed', String(b.dataset.v === epBoss)); });
+  if (epBoss === 'cloud') epModes.delete('host_only');
+  if (!epModes.size) epModes.add('auto');
+  $('ep-mode').replaceChildren(...MODE_ORDER.map(v => {
+    const off = v === 'host_only' && epBoss === 'cloud';
+    return h('button', { type: 'button', 'data-v': v, class: epModes.has(v) ? 'on' : '', 'aria-pressed': String(epModes.has(v)),
+      disabled: off ? '' : null, title: off ? "A simulated cloud boss can't write the answers itself" : MODE_HELP[v],
+      onclick: () => { epModes.has(v) && epModes.size > 1 ? epModes.delete(v) : epModes.add(v); renderModeButtons(); } }, MODE_LABEL[v]);
+  }));
+  const picked = MODE_ORDER.filter(v => epModes.has(v));
+  $('ep-mode-help').replaceChildren(h('b', {}, 'Boss: '), BOSS_HELP[epBoss], h('br', {}),
+    ...picked.flatMap((v, i) => [i ? h('br', {}) : null, h('b', {}, MODE_LABEL[v] + ': '), MODE_HELP[v]]),
+    picked.length > 1 ? h('div', { style: 'margin-top:4px' }, `Runs ${picked.length} times, one after another, so you can compare them below.`) : null);
 }
 
 function loadPreset() {
@@ -529,7 +551,10 @@ function storyOf(e) {
   const checks = s.verified === n ? `All ${n} answers passed their tests.` :
     e.tasks.some(t => t.verified !== null) ? `${s.verified} of ${n} answers passed their tests.` : 'There were no tests, so nothing was verified.';
   const esc = s.escalations ? ` ${s.escalations} answer${s.escalations > 1 ? 's' : ''} failed a test and went to a stronger model.` : '';
-  return `${how} ${checks}${esc} The boss avoided writing about ${fmtN(s.host_tokens_saved)} tokens.`;
+  const why = e.auto ? (e.boss === 'cloud' ? 'Auto chose async because the boss runs in the cloud. ' :
+    e.mode === 'burst' ? "Auto chose burst because the boss shares the workers' GPU. " : 'Auto chose async. ') : '';
+  const where = e.boss === 'cloud' ? ' (The cloud boss is simulated by timing.)' : '';
+  return `${why}${how} ${checks}${esc} The boss avoided writing about ${fmtN(s.host_tokens_saved)} tokens.${where}`;
 }
 
 function renderHistory() {
@@ -540,10 +565,11 @@ function renderHistory() {
     h('h3', {}, 'Your runs'),
     h('div', { class: 'muted', style: 'font-size:13px' }, 'Run the same batch with each schedule to compare. "Boss wrote" is how many tokens the expensive model produced. The fastest run of each batch is in bold.'),
     h('table', {},
-      h('thead', {}, h('tr', {}, ['#', 'Batch', 'Schedule', 'Total', 'Boss waited', 'Boss wrote', 'Verified', 'Escalations', 'Tokens saved', 'What happened']
-        .map((c, i) => h('th', { class: i >= 3 && i <= 8 ? 'n' : '' }, c)))),
+      h('thead', {}, h('tr', {}, ['#', 'Batch', 'Boss', 'Schedule', 'Total', 'Boss waited', 'Boss wrote', 'Verified', 'Escalations', 'Tokens saved', 'What happened']
+        .map((c, i) => h('th', { class: i >= 4 && i <= 9 ? 'n' : '' }, c)))),
       h('tbody', {}, epHistory.slice().reverse().map(r => h('tr', {},
-        h('td', {}, String(r.n)), h('td', {}, r.batch), h('td', {}, MODE_LABEL[r.mode] || r.mode),
+        h('td', {}, String(r.n)), h('td', {}, r.batch), h('td', {}, r.boss === 'cloud' ? 'cloud' : 'same GPU'),
+        h('td', {}, r.auto ? `Auto → ${MODE_LABEL[r.mode] || r.mode}` : MODE_LABEL[r.mode] || r.mode),
         h('td', { class: 'n', style: r.total === fastest.get(r.batch) && epHistory.filter(x => x.batch === r.batch).length > 1 ? 'font-weight:600' : '' }, fmtS(r.total)),
         h('td', { class: 'n' }, fmtS(r.waited)), h('td', { class: 'n' }, fmtN(r.wrote)), h('td', { class: 'n' }, r.verified), h('td', { class: 'n' }, String(r.escalations)),
         h('td', { class: 'n' }, fmtN(r.saved)), h('td', { class: 'story' }, r.story)))))));
@@ -554,26 +580,30 @@ async function runEpisode() {
   let subtasks;
   try { subtasks = $('ep-subtasks').value.split('\n').filter(l => l.trim()).map(l => JSON.parse(l)); }
   catch (e) { $('ep-err').textContent = 'Each subtask line must be JSON like {"task": "...", "check": "..."}.'; return; }
-  $('btn-episode').disabled = true; $('ep-msg').textContent = 'Starting…';
+  const modes = MODE_ORDER.filter(v => epModes.has(v));
+  const batch = EP_PRESETS[epPreset][0] + ($('ep-subtasks').value === EP_PRESETS[epPreset][1].map(x => JSON.stringify(x)).join('\n') ? '' : ' (edited)');
+  $('btn-episode').disabled = true;
   try {
-    const { episode_id } = await api('/api/episode', { subtasks, host_steps: $('ep-steps').value.split('\n'),
-      host_tier: $('ep-host').value, mode: epMode === 'auto' ? null : epMode });
-    clearInterval(epTimer);
-    const tick = async () => {
-      const e = await api('/api/episode/' + episode_id);
-      renderEpisode(e);
-      if (e.status === 'done' || e.status === 'failed') {
-        clearInterval(epTimer); $('btn-episode').disabled = false;
-        if (e.status === 'done') {
-          epHistory.push({ n: epHistory.length + 1, batch: EP_PRESETS[epPreset][0] + ($('ep-subtasks').value === EP_PRESETS[epPreset][1].map(x => JSON.stringify(x)).join('\n') ? '' : ' (edited)'),
-            mode: e.mode, total: e.elapsed_s, waited: e.summary.host_blocked_s, wrote: e.summary.host_tokens, verified: `${e.summary.verified}/${e.tasks.length}`,
-            escalations: e.summary.escalations, saved: e.summary.host_tokens_saved, story: storyOf(e) });
-          renderHistory();
-        }
-      }
-    };
-    epTimer = setInterval(tick, 500); tick();
-  } catch (e) { $('ep-err').textContent = e.message; $('btn-episode').disabled = false; $('ep-msg').textContent = ''; }
+    for (const [i, mode] of modes.entries()) {
+      const prefix = modes.length > 1 ? `Run ${i + 1} of ${modes.length}: ` : '';
+      $('ep-msg').textContent = prefix + 'starting…';
+      const { episode_id } = await api('/api/episode', { subtasks, host_steps: $('ep-steps').value.split('\n'),
+        host_tier: $('ep-host').value, mode: mode === 'auto' ? null : mode, boss: epBoss });
+      let e;
+      do {
+        await new Promise(r => setTimeout(r, 500));
+        e = await api('/api/episode/' + episode_id);
+        renderEpisode(e, prefix);
+      } while (e.status !== 'done' && e.status !== 'failed');
+      if (e.status === 'failed') { $('ep-err').textContent = `${MODE_LABEL[mode]} failed: ${e.error}`; break; }
+      epHistory.push({ n: epHistory.length + 1, batch, boss: e.boss, mode: e.mode, auto: e.auto,
+        total: e.elapsed_s, waited: e.summary.host_blocked_s, wrote: e.summary.host_tokens,
+        verified: `${e.summary.verified}/${e.tasks.length}`, escalations: e.summary.escalations,
+        saved: e.summary.host_tokens_saved, story: storyOf(e) });
+      renderHistory();
+    }
+  } catch (err) { $('ep-err').textContent = err.message; }
+  $('btn-episode').disabled = false;
 }
 
 function stageOf(e) {
@@ -585,11 +615,13 @@ function stageOf(e) {
   return 1;
 }
 
-function renderEpisode(e) {
+const scheduleName = (e) => (e.auto ? `Auto → ${MODE_LABEL[e.mode] || e.mode}` : MODE_LABEL[e.mode] || e.mode);
+
+function renderEpisode(e, prefix = '') {
   const stage = stageOf(e);
   $('ep-stages').querySelectorAll('li').forEach((li, i) => { li.className = i + 1 < stage ? 'done' : i + 1 === stage ? 'on' : ''; });
-  $('ep-msg').textContent = e.status === 'running' ? `Running: ${MODE_LABEL[e.mode] || e.mode} · ${fmtS(e.elapsed_s)}` :
-    e.status === 'done' ? `Finished in ${fmtS(e.elapsed_s)}` : e.error || '';
+  $('ep-msg').textContent = prefix + (e.status === 'running' ? `${scheduleName(e)} · ${fmtS(e.elapsed_s)}` :
+    e.status === 'done' ? `finished in ${fmtS(e.elapsed_s)}` : e.error || '');
   const ends = [...e.host.map(s => s.end), ...e.tasks.flatMap(t => t.attempts.map(a => a.end)), e.elapsed_s];
   const span = niceMax(Math.max(1, ...ends));
   const pct = (x) => (100 * x / span) + '%';
@@ -627,7 +659,7 @@ function renderEpisode(e) {
   const ticks = [0, .25, .5, .75, 1].map(f => h('span', { style: `left:${f * 100}%` }, fmtS(f * span)));
   const hostRow = h('div', { class: 'ep-row host-row' },
     h('div', { class: 'ep-task' }, h('b', {}, 'The boss'), h('small', {}, e.host_tier)),
-    h('div', { class: 'route-note' }, MODE_LABEL[e.mode] || e.mode),
+    h('div', { class: 'route-note' }, scheduleName(e)),
     h('div', { class: 'ep-lane' }, h('div', { class: 'track' }, e.host.map(s => h('div', {
       class: 'bar ' + (s.kind === 'work' ? 'work' : 'blocked') + (s.open ? ' open' : ''),
       style: `left:${pct(s.start)};width:${pct(Math.max(s.end - s.start, 0.05))}`, title: s.label },
