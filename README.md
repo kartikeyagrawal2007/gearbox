@@ -25,6 +25,7 @@ Details and caveats: [REPORT.md](REPORT.md).
 
 | If you want to… | Read |
 |---|---|
+| See where the whole project stands right now | [docs/STATUS.md](docs/STATUS.md) |
 | Understand the idea, and what's new about it | [IDEA.md](IDEA.md) |
 | Know what we found, and whether it worked | [REPORT.md](REPORT.md) |
 | See what's built, what's missing, and what's next | [ROADMAP.md](ROADMAP.md) |
