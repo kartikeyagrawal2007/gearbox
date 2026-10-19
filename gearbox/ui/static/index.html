@@ -554,7 +554,16 @@ function storyOf(e) {
   const why = e.auto ? (e.boss === 'cloud' ? 'Auto chose async because the boss runs in the cloud. ' :
     e.mode === 'burst' ? "Auto chose burst because the boss shares the workers' GPU. " : 'Auto chose async. ') : '';
   const where = e.boss === 'cloud' ? ' (The cloud boss is simulated by timing.)' : '';
-  return `${why}${how} ${checks}${esc} The boss avoided writing about ${fmtN(s.host_tokens_saved)} tokens.${where}`;
+  const tokens = e.mode === 'host_only' ? ` The boss wrote ${fmtN(s.host_tokens)} tokens.`
+    : ` The workers wrote ${fmtN(s.worker_tokens)} tokens of answers; the boss wrote ${fmtN(s.host_tokens)}.`;
+  return `${why}${how} ${checks}${esc}${tokens}${where}`;
+}
+
+function savedVsBaseline(r) {
+  // Measured saving: the boss's own tokens when it did everything itself (same batch, same boss), minus this run's.
+  if (r.mode === 'host_only' || r.boss === 'cloud') return null;
+  const base = epHistory.filter(x => x.mode === 'host_only' && x.batch === r.batch && x.bossTier === r.bossTier).at(-1);
+  return base ? base.wrote - r.wrote : null;
 }
 
 function renderHistory() {
@@ -563,16 +572,19 @@ function renderHistory() {
   for (const r of epHistory) if (!fastest.has(r.batch) || r.total < fastest.get(r.batch)) fastest.set(r.batch, r.total);
   $('ep-history').replaceChildren(h('div', { class: 'ep-hist' },
     h('h3', {}, 'Your runs'),
-    h('div', { class: 'muted', style: 'font-size:13px' }, 'Run the same batch with each schedule to compare. "Boss wrote" is how many tokens the expensive model produced. The fastest run of each batch is in bold.'),
+    h('div', { class: 'muted', style: 'font-size:13px' }, 'Run the same batch with each schedule to compare. Schedules change the time, not who writes: the workers’ answers are the same every run (temperature 0), so "Workers wrote" doesn’t change between schedules. "Saved vs doing it yourself" is measured against your "Do it all yourself" run of the same batch, so run that one too. The fastest run of each batch is in bold.'),
     h('table', {},
-      h('thead', {}, h('tr', {}, ['#', 'Batch', 'Boss', 'Schedule', 'Total', 'Boss waited', 'Boss wrote', 'Verified', 'Escalations', 'Tokens saved', 'What happened']
-        .map((c, i) => h('th', { class: i >= 4 && i <= 9 ? 'n' : '' }, c)))),
+      h('thead', {}, h('tr', {}, ['#', 'Batch', 'Boss', 'Schedule', 'Total', 'Boss waited', 'Boss wrote', 'Workers wrote', 'Saved vs doing it yourself', 'Verified', 'Escalations', 'What happened']
+        .map((c, i) => h('th', { class: i >= 4 && i <= 10 ? 'n' : '' }, c)))),
       h('tbody', {}, epHistory.slice().reverse().map(r => h('tr', {},
-        h('td', {}, String(r.n)), h('td', {}, r.batch), h('td', {}, r.boss === 'cloud' ? 'cloud' : 'same GPU'),
+        h('td', {}, String(r.n)), h('td', {}, r.batch), h('td', {}, r.boss === 'cloud' ? 'cloud (simulated)' : `same GPU (${r.bossTier})`),
         h('td', {}, r.auto ? `Auto → ${MODE_LABEL[r.mode] || r.mode}` : MODE_LABEL[r.mode] || r.mode),
         h('td', { class: 'n', style: r.total === fastest.get(r.batch) && epHistory.filter(x => x.batch === r.batch).length > 1 ? 'font-weight:600' : '' }, fmtS(r.total)),
-        h('td', { class: 'n' }, fmtS(r.waited)), h('td', { class: 'n' }, fmtN(r.wrote)), h('td', { class: 'n' }, r.verified), h('td', { class: 'n' }, String(r.escalations)),
-        h('td', { class: 'n' }, fmtN(r.saved)), h('td', { class: 'story' }, r.story)))))));
+        h('td', { class: 'n' }, fmtS(r.waited)), h('td', { class: 'n' }, fmtN(r.wrote)), h('td', { class: 'n' }, r.mode === 'host_only' ? '–' : fmtN(r.workers)),
+        h('td', { class: 'n', title: 'The boss\'s tokens in your "Do it all yourself" run of this batch, minus this run\'s' },
+          savedVsBaseline(r) == null ? '–' : fmtN(savedVsBaseline(r))),
+        h('td', { class: 'n' }, r.verified), h('td', { class: 'n' }, String(r.escalations)),
+        h('td', { class: 'story' }, r.story)))))));
 }
 
 async function runEpisode() {
@@ -599,7 +611,7 @@ async function runEpisode() {
       epHistory.push({ n: epHistory.length + 1, batch, boss: e.boss, mode: e.mode, auto: e.auto,
         total: e.elapsed_s, waited: e.summary.host_blocked_s, wrote: e.summary.host_tokens,
         verified: `${e.summary.verified}/${e.tasks.length}`, escalations: e.summary.escalations,
-        saved: e.summary.host_tokens_saved, story: storyOf(e) });
+        workers: e.summary.worker_tokens, bossTier: e.host_tier, story: storyOf(e) });
       renderHistory();
     }
   } catch (err) { $('ep-err').textContent = err.message; }
@@ -653,7 +665,7 @@ function renderEpisode(e, prefix = '') {
       t.state === 'done' ? h('span', { class: 'pill s-done' }, 'done') : h('span', { class: 'pill s-running' }, t.state);
     return h('div', { class: 'ep-out' }, badge,
       tried.length ? h('div', { class: 'path' }, tried.join(' → ')) : null,
-      t.state === 'done' ? h('div', { class: 'muted', style: 'font-size:12px' }, `boss saved ~${fmtN(t.host_tokens_saved)} tokens`) : null,
+      t.worker_tokens ? h('div', { class: 'muted', style: 'font-size:12px' }, `workers wrote ${fmtN(t.worker_tokens)} tokens`) : null,
       t.result ? h('details', {}, h('summary', {}, 'Answer'), h('pre', {}, t.result)) : null);
   };
   const ticks = [0, .25, .5, .75, 1].map(f => h('span', { style: `left:${f * 100}%` }, fmtS(f * span)));
@@ -678,7 +690,7 @@ function renderEpisode(e, prefix = '') {
     h('div', { class: 'ep-summary' },
       [[fmtS(e.elapsed_s), 'total time'], [fmtS(s.host_blocked_s), 'the boss spent waiting'],
        [`${s.verified}/${e.tasks.length}`, 'answers verified by their checks'], [String(s.escalations), 'escalations to a stronger model'],
-       [fmtN(s.host_tokens_saved), 'tokens the boss didn\'t have to write']].map(([v, k]) =>
+       [fmtN(s.host_tokens), 'tokens the boss wrote']].map(([v, k]) =>
         h('div', { class: 'stat' }, h('div', { class: 'v' }, v), h('div', { class: 'k' }, k)))));
 }
 

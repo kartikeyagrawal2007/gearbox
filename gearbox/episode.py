@@ -55,6 +55,8 @@ class Episode:
         self.host_only = mode == "host_only"
         self.auto = mode in (None, "auto")
         host = config.tiers[config.tier_index(host_tier) if host_tier is not None else config.top]
+        if self.host_only:  # the baseline is the host's own single answer: nobody stronger to hand it to
+            config = dataclasses.replace(config, max_escalations=0)
         if self.auto:  # what Gearbox would choose for this boss
             runtime_mode = "async" if self.cloud else dataclasses.replace(
                 config, delegation_mode="auto", host_model=host.model, host_api_base=host.api_base).effective_delegation_mode
@@ -147,16 +149,15 @@ class Episode:
             if dt.active:
                 attempts.append({"tier": dt.active[0], "outcome": "running", "start": rel(dt.active[1]),
                                  "end": rel(None), "tokens": 0, "check": None})
-            accepted = dt.attempts[-1].output_tokens if dt.attempts and dt.state.value == "done" else 0
             tasks.append({
                 "task_id": tid, "task": dt.task, "state": dt.state.value, "routing": view["routing"],
                 "check_cases": None if not dt.check else (lambda n: None if n == float("inf") else int(n))(count_cases(dt.check)),
                 "check_strength": check_strength(dt.check) if dt.check else None,
                 "verified": view["verified"], "attempts": attempts, "result": view.get("result"),
                 "error": view.get("error"),
-                # Had the host written the answer itself, it would have produced these tokens;
-                # instead it wrote only the brief.
-                "host_tokens_saved": 0 if self.host_only else max(0, accepted - dt.brief_tokens),
+                # Measured, not estimated: what the workers wrote for this subtask (every attempt).
+                # The saving against the host doing it itself is measured by comparing runs.
+                "worker_tokens": 0 if self.host_only else sum(a.output_tokens for a in dt.attempts),
             })
         blocked = sum((s[3] or now) - s[2] for s in self.spans if s[0] == "blocked")
         return {
@@ -170,7 +171,7 @@ class Episode:
             "summary": {
                 "done": all(self.runtime.task(t).state in TERMINAL for t in self.task_ids) if self.task_ids else False,
                 "host_blocked_s": round(blocked, 2), "host_tokens": self.host_tokens,
-                "host_tokens_saved": sum(t["host_tokens_saved"] for t in tasks),
+                "worker_tokens": sum(t["worker_tokens"] for t in tasks),
                 "verified": sum(t["verified"] is True for t in tasks),
                 "escalations": sum(max(0, len([a for a in t["attempts"] if a["outcome"] != "running"]) - 1) for t in tasks),
             },
