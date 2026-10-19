@@ -686,7 +686,7 @@ function renderEpisode(e, prefix = '') {
       e.tasks.map(t => h('div', { class: 'ep-row' },
         h('div', { class: 'ep-task' }, h('b', { title: t.task }, t.task.replace(/^Write a Python function /, '')), h('small', {}, t.task_id)),
         routeCell(t), laneCell(t), outCell(t)))),
-    e.status === 'done' ? h('div', { class: 'ep-story' }, storyOf(e)) : null,
+    ...(e.status === 'done' ? [h('div', { class: 'ep-story' }, storyOf(e))] : []),
     h('div', { class: 'ep-summary' },
       [[fmtS(e.elapsed_s), 'total time'], [fmtS(s.host_blocked_s), 'the boss spent waiting'],
        [`${s.verified}/${e.tasks.length}`, 'answers verified by their checks'], [String(s.escalations), 'escalations to a stronger model'],

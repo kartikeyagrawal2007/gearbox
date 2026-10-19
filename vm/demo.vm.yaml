@@ -10,7 +10,8 @@ tiers:
 
 difficulty: learned                        # the 4B judge rates each subtask; see docs/paper/results.md 5.4
 router_model: ../routers/judge-qwen3.5-4b.json
-learned_tau: {none: 0.9, weak: 0.9, medium: 0.8, strong: 0.0}
+start_floor: q4b                           # with a test, start here and escalate on failure (finding 18)
+learned_tau: {none: 0.9, weak: 0.0, medium: 0.0, strong: 0.0}   # only an untested subtask needs a sure pick
 max_concurrent: 4
 max_escalations: 4                         # a failed check can climb the whole ladder
 task_timeout_s: 600

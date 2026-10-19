@@ -60,11 +60,13 @@ class GearboxConfig:
     # Qwen3.5 4B instead of 0.8B gave the same accuracy in 2.8x less time.
     start_floor: str | int | None = None
     # difficulty: learned. A file from bench/router_train.py --export, and the pass-chance bar a
-    # tier must clear, by check strength ("none" = no check): a weak check needs a sure pick, a
-    # strong one can start at the floor and let escalation catch misses.
+    # tier must clear, by check strength ("none" = no check). With any check, start at the floor
+    # and let escalation catch misses: even one test case, starting at the 4B, was 2.4-2.7x
+    # cheaper than any up-front pick (docs/paper/results.md, finding 18). Only a subtask with no
+    # check needs a sure pick.
     router_model: str | None = None
     learned_tau: dict[str, float] = field(
-        default_factory=lambda: {"none": 0.9, "weak": 0.9, "medium": 0.8, "strong": 0.0}, hash=False)
+        default_factory=lambda: {"none": 0.9, "weak": 0.0, "medium": 0.0, "strong": 0.0}, hash=False)
     max_concurrent: int = 4
     task_timeout_s: float = 600.0
     max_escalations: int = 1
